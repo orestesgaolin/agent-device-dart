@@ -60,6 +60,19 @@ export 'src/snapshot/snapshot.dart'
         SnapshotVisibility,
         SnapshotVisibilityReason,
         centerOfRect;
+export 'src/utils/diagnostics.dart'
+    show
+        DiagnosticEvent,
+        DiagnosticLevel,
+        DiagnosticsMetadata,
+        DiagnosticsScopeOptions,
+        EmitDiagnosticOptions,
+        createRequestId,
+        emitDiagnostic,
+        flushDiagnosticsToSessionFile,
+        getDiagnosticsMeta,
+        withDiagnosticTimer,
+        withDiagnosticsScope;
 export 'src/utils/errors.dart'
     show
         AppError,
@@ -71,4 +84,38 @@ export 'src/utils/errors.dart'
         normalizeAgentDeviceError,
         normalizeError,
         toAppErrorCode;
+export 'src/utils/exec.dart'
+    show
+        ExecOptions,
+        ExecStreamOptions,
+        RunCmdResult,
+        resolveExecutableOverridePath,
+        resolveFileOverridePath,
+        runCmd,
+        runCmdStreaming,
+        runCmdSync,
+        whichCmd;
+export 'src/utils/path_resolution.dart'
+    show
+        EnvMap,
+        PathResolutionOptions,
+        expandUserHomePath,
+        resolveHomeDirectory,
+        resolveUserPath;
+export 'src/utils/png.dart' show decodePng, resizePngFileToMaxSize;
+export 'src/utils/retry.dart'
+    show
+        CancelToken,
+        Deadline,
+        RetryAttemptContext,
+        RetryOptions,
+        RetryPolicy,
+        RetryTelemetryEvent,
+        TimeoutProfile,
+        isEnvTruthy,
+        retryWithPolicy,
+        timeoutProfiles,
+        withRetry;
+export 'src/utils/timeouts.dart'
+    show resolveTimeoutMs, resolveTimeoutSeconds, sleep;
 export 'src/version.dart';

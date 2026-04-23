@@ -1,0 +1,1 @@
+- [Phase 2 Utilities Port Patterns](feature-port-haiku/phase-2-utilities.md) — Zone-based scope, Random.secure() for IDs, CancelToken pattern, test anti-patterns
