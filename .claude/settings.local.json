@@ -12,7 +12,10 @@
       "Bash(git add *)",
       "Bash(git -c user.email=dominik@makevisible.com -c user.name=dominik commit -q -m \"chore: phase 0 scaffold + errors/redaction port\")",
       "Bash(echo \"EXIT=$?\")",
-      "Bash(dart fix *)"
+      "Bash(dart fix *)",
+      "Bash(git -c user.email=dominik@makevisible.com -c user.name=dominik commit -q -m 'feat\\(snapshot\\): phase 1 port — errors, redaction, snapshot model' -m '- errors + redaction \\(100% test coverage of code paths\\) *)",
+      "Bash(grep -E \"\\(reformatted|^$\\)\")",
+      "Bash(grep -E \"reformatted|^$\")"
     ]
   }
 }

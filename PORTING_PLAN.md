@@ -132,8 +132,8 @@ No process spawning, no network. Types + parsing + formatters.
 - Port `utils/snapshot.ts`, `utils/snapshot-tree.ts`, `utils/snapshot-visibility.ts`, `utils/snapshot-lines.ts`, `utils/snapshot-processing.ts`, `utils/snapshot-diff.ts` → `lib/src/snapshot/*`.
 - Port `utils/selector-*.ts` + `daemon/selectors*.ts` (parse/match/resolve, no IO side) → `lib/src/selectors/*`.
 - Port `.ad` parser + writer (`daemon/handlers/session-replay-script.ts`, `session-open-script.ts`) → `lib/src/replay/script.dart`.
-- Port command schema + arg parser (`utils/command-schema.ts`, `utils/args.ts`, `utils/cli-options.ts`) → `lib/src/cli/args.dart`. This is a big file (~hundreds of flags) but mostly data.
-- Port `commands/index.ts` catalog metadata → `lib/src/commands/catalog.dart`.
+- ~~Port command schema + arg parser~~ **Skipped.** `utils/command-schema.ts` (1589 LOC) + `utils/args.ts` + `utils/cli-option-schema.ts` + `utils/cli-options.ts` exist to feed a custom TS arg parser. In Dart we use `package:args` with per-command `Command` subclasses that declare flags inline — that work happens in Phase 5 as each CLI command is ported. The shared universal flags (`--session`, `--platform`, `--json`, `--verbose` / `--debug`, `--state-dir`, etc.) live on a base `Command` class. Net deleted: ~2100 LOC of data-shaped code.
+- Port `commands/index.ts` catalog metadata → `lib/src/commands/catalog.dart`. Downstream SDK consumers rely on `commandCatalog` for docs/LSP; this is separate from CLI arg parsing and still needs a small port (data only, no logic).
 - Snapshot test fixtures: load a handful of real `.ad` scripts and snapshot JSON samples; assert equivalence with Node outputs.
 - **Subagent strategy**: delegate each file's port to a haiku agent in isolation (`isolation: worktree`) with the source file + target path; review and merge.
 
@@ -252,6 +252,7 @@ Parallelism: files within the same phase whose dep graphs don't overlap can be p
 ## 8. Status / Changelog
 
 - **2026-04-23**: Plan drafted.
-- **2026-04-23**: Phase 0 done. Pub workspace at repo root, package at `packages/agent_device` (Dart SDK ^3.11, `args` / `path` / `crypto` / `http` / `shelf` / `shelf_router` / `xml` / `image` / `meta`, dev: `lints` / `test`). Strict analyzer (`strict-casts` / `strict-inference` / `strict-raw-types`). CLI stub at `bin/agent_device.dart` with `--version`; smoke test green; `dart analyze` clean; `dart format` clean. Makefile (`get` / `analyze` / `format` / `test` / `check`) + GH Actions CI on macos-latest. Next: Phase 1 — port `utils/errors.ts`, snapshot model, selector DSL, `.ad` parser, command schema.
+- **2026-04-23**: Phase 0 done. Pub workspace at repo root, package at `packages/agent_device` (Dart SDK ^3.11, `args` / `path` / `crypto` / `http` / `shelf` / `shelf_router` / `xml` / `image` / `meta`, dev: `lints` / `test`). Strict analyzer (`strict-casts` / `strict-inference` / `strict-raw-types`). CLI stub at `bin/agent_device.dart` with `--version`; smoke test green; `dart analyze` clean; `dart format` clean. Makefile (`get` / `analyze` / `format` / `test` / `check`) + GH Actions CI on macos-latest.
+- **2026-04-23**: Phase 1 partial — ported `utils/errors.ts` + `utils/redaction.ts` (hand) and the 6-file `utils/snapshot*.ts` group (haiku subagent, inline; worktree isolation rejected so review-by-diff). 51 tests passing; analyze clean. Open TODOs: `snapshot/visibility.dart` stubs mobile-surface semantics pending port of `utils/mobile-snapshot-semantics.ts`; `processing.dart::extractNodeReadText` aliases `extractNodeText` pending `text-surface.ts` port. Still to port this phase: selectors (7 files, ~707 LOC), `.ad` parser (397 LOC), command-schema (1589 LOC — split strategy TBD).
 
 (Append dated entries below as phases land.)

@@ -5,6 +5,52 @@
 /// modules are ported (see PORTING_PLAN.md).
 library;
 
+export 'src/platforms/platform_selector.dart'
+    show
+        PlatformSelector,
+        isApplePlatform,
+        parsePlatformSelector,
+        platformSelectorToString;
+export 'src/replay/open_script.dart'
+    show appendOpenActionScriptArgs, parseReplayOpenFlags;
+export 'src/replay/script.dart'
+    show
+        ReplayScriptMetadata,
+        formatReplayActionLine,
+        parseReplayScript,
+        readReplayScriptMetadata,
+        serializeReplayScript;
+export 'src/replay/script_utils.dart'
+    show
+        formatScriptActionSummary,
+        formatScriptArg,
+        formatScriptArgQuoteIfNeeded,
+        formatScriptStringLiteral,
+        isClickLikeCommand;
+export 'src/replay/session_action.dart' show SessionAction, SessionRuntimeHints;
+export 'src/selectors/selectors.dart'
+    show
+        IsPredicateResult,
+        IsPredicate,
+        Selector,
+        SelectorChain,
+        SelectorDiagnostics,
+        SelectorResolution,
+        SelectorTerm,
+        buildSelectorChainForNode,
+        evaluateIsPredicate,
+        findSelectorChainMatch,
+        formatSelectorFailure,
+        isSelectorToken,
+        isSupportedPredicate,
+        isNodeEditable,
+        isNodeVisible,
+        matchesSelector,
+        parseSelectorChain,
+        resolveSelectorChain,
+        splitIsSelectorArgs,
+        splitSelectorFromArgs,
+        tryParseSelectorChain;
 export 'src/snapshot/snapshot.dart'
     show
         Point,
