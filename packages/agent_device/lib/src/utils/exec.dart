@@ -258,11 +258,120 @@ Future<String?> resolveFileOverridePath(String? rawPath, String envName) async {
   return candidate;
 }
 
-// TODO(port): runCmdBackground and runCmdDetached cannot be implemented
-// synchronously in Dart because Process.start is async. The TS API expects
-// synchronous returns with futures inside, but Dart forces async all the way.
-// This is a fundamental API mismatch. Users should refactor to use runCmd
-// with streaming options for similar semantics.
+/// Spawn [cmd] with [args] detached from the parent process.
+///
+/// TS-source counterpart: `runCmdDetached`. The TS version returns the child's
+/// `pid` synchronously; Dart's `Process.start` is async, so this returns a
+/// `Future<Process>`. Awaiting the future yields the live handle — the caller
+/// owns its lifecycle (kill / exitCode) and can read `process.pid`.
+Future<Process> runCmdDetached(
+  String cmd,
+  List<String> args, [
+  ExecDetachedOptions options = const ExecDetachedOptions(),
+]) async {
+  final executable = _normalizeExecutableCommand(cmd);
+  try {
+    final process = await Process.start(
+      executable,
+      args,
+      workingDirectory: options.cwd,
+      environment: options.env,
+      mode: ProcessStartMode.detached,
+    );
+    return process;
+  } on ProcessException catch (e) {
+    throw _translateSpawnFailure(e, executable, cmd, args);
+  }
+}
+
+/// Spawn [cmd] with [args] as a long-lived background process.
+///
+/// TS-source counterpart: `runCmdBackground`. Returns both the live [Process]
+/// handle and a `wait` future that resolves when the process exits (or
+/// rejects with an [AppError] matching TS semantics: `TOOL_MISSING` for spawn
+/// failures, `COMMAND_FAILED` with `processExitError: true` on non-zero exit
+/// when [ExecOptions.allowFailure] is false). stdin is closed immediately;
+/// stdout/stderr are captured as UTF-8 strings.
+Future<ExecBackgroundResult> runCmdBackground(
+  String cmd,
+  List<String> args, [
+  ExecOptions options = const ExecOptions(),
+]) async {
+  final executable = _normalizeExecutableCommand(cmd);
+  final Process process;
+  try {
+    process = await Process.start(
+      executable,
+      args,
+      workingDirectory: options.cwd,
+      environment: options.env,
+      mode: ProcessStartMode.normal,
+    );
+  } on ProcessException catch (e) {
+    throw _translateSpawnFailure(e, executable, cmd, args);
+  }
+
+  await process.stdin.close();
+
+  var stdout = '';
+  var stderr = '';
+  final stdoutFuture = process.stdout
+      .transform(utf8.decoder)
+      .forEach((chunk) => stdout += chunk);
+  final stderrFuture = process.stderr
+      .transform(utf8.decoder)
+      .forEach((chunk) => stderr += chunk);
+
+  final wait = () async {
+    final exitCode = await process.exitCode;
+    await stdoutFuture;
+    await stderrFuture;
+    if (exitCode != 0 && !options.allowFailure) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        '$executable exited with code $exitCode',
+        details: {
+          'cmd': cmd,
+          'args': args,
+          'stdout': stdout,
+          'stderr': stderr,
+          'exitCode': exitCode,
+          'processExitError': true,
+        },
+      );
+    }
+    return RunCmdResult(stdout: stdout, stderr: stderr, exitCode: exitCode);
+  }();
+
+  return ExecBackgroundResult(process: process, wait: wait);
+}
+
+AppError _translateSpawnFailure(
+  ProcessException e,
+  String executable,
+  String cmd,
+  List<String> args,
+) {
+  final message = e.message;
+  final isNotFound =
+      e.errorCode == 2 || // ENOENT on POSIX
+      message.contains('No such file or directory') ||
+      message.contains('cannot find');
+  if (isNotFound) {
+    return AppError(
+      AppErrorCodes.toolMissing,
+      '$executable not found in PATH',
+      details: {'cmd': cmd},
+      cause: e,
+    );
+  }
+  return AppError(
+    AppErrorCodes.commandFailed,
+    'Failed to run $executable',
+    details: {'cmd': cmd, 'args': args},
+    cause: e,
+  );
+}
 
 // ============================================================================
 // Private helpers

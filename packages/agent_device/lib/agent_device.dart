@@ -86,12 +86,16 @@ export 'src/utils/errors.dart'
         toAppErrorCode;
 export 'src/utils/exec.dart'
     show
+        ExecBackgroundResult,
+        ExecDetachedOptions,
         ExecOptions,
         ExecStreamOptions,
         RunCmdResult,
         resolveExecutableOverridePath,
         resolveFileOverridePath,
         runCmd,
+        runCmdBackground,
+        runCmdDetached,
         runCmdStreaming,
         runCmdSync,
         whichCmd;

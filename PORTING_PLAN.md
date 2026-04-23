@@ -145,9 +145,13 @@ No process spawning, no network. Types + parsing + formatters.
 
 ### Phase 3 — Backend interface + Android first (5–7 days)
 Pick Android as the first real backend (simplest external dep: just `adb`).
+- First, fill the verifier-flagged exec gaps: `runCmdDetached` returns `Future<Process>` (caller awaits the spawn, receives a live handle); `runCmdBackground` returns a `({Process process, Future<RunCmdResult> wait})` record matching the TS `ExecBackgroundResult` shape. **Decision (2026-04-23)**: `runCmdDetached` returns `Future<Process>`, not `Future<int>` — closer to TS usage sites and gives the caller full lifecycle control.
 - Define `abstract class Backend` matching `src/backend.ts`.
-- Port `platforms/android/*`: `adb.ts`, `ui-hierarchy.ts` (XML → SnapshotNode), `devices.ts`, `app-lifecycle.ts`, `input-actions.ts`, `screenshot.ts`, `snapshot.ts`, `install-artifact.ts`, `manifest.ts`, `app-parsers.ts`, `settings.ts`, `perf.ts`, `notifications.ts`, `open-target.ts`, `scroll-hints.ts`, `sdk.ts`, `device-input-state.ts`.
-- Smoke test: `snapshot`, `tap`, `open` against an emulator via an end-to-end integration test (gated on `ANDROID_SERIAL`).
+- Port `platforms/android/*`: `adb.ts`, `ui-hierarchy.ts` (XML → SnapshotNode), `devices.ts`, `app-lifecycle.ts`, `input-actions.ts`, `screenshot.ts`, `snapshot.ts`, `install-artifact.ts`, `manifest.ts`, `app-parsers.ts`, `settings.ts`, `perf.ts`, `notifications.ts`, `open-target.ts`, `scroll-hints.ts`, `sdk.ts`, `device-input-state.ts`. ~4050 TS LOC; split into three waves:
+  - **Wave A** (foundations): `adb`, `sdk`, `devices`, `manifest`, `app-parsers`, `install-artifact` — standalone utilities.
+  - **Wave B** (snapshot layer): `ui-hierarchy`, `snapshot`, `screenshot`, `scroll-hints`.
+  - **Wave C** (actions + lifecycle + assembly): `input-actions`, `app-lifecycle`, `device-input-state`, `notifications`, `open-target`, `perf`, `settings`, `index` (the `AndroidBackend` class that implements `Backend`).
+- **Integration testing**: mirror the TS `android.yml` workflow — `reactivecircus/android-emulator-runner@v2` on ubuntu-latest (pixel_7, api 36, google_apis_playstore), run `.ad` replay scripts (`test/integration/replays/android/*.ad`) through the Dart CLI. Keep local unit tests pure (parsing ADB output strings, no real subprocess) so `dart test` stays fast; integration tests gate on `AGENT_DEVICE_ANDROID_IT=1` for local dev. CI workflow added in the last step of this phase, after there's something real to test.
 
 ### Phase 4 — Runtime + in-process SDK (3 days)
 - Port `core/dispatch.ts`, `core/capabilities.ts`, `core/dispatch-*.ts`, `core/interactors.ts`, `core/batch.ts`, `core/*.ts`.
@@ -244,6 +248,7 @@ Parallelism: files within the same phase whose dep graphs don't overlap can be p
 - **PNG diff performance**: `package:image` is pure Dart and may be 5–10× slower than `pngjs`. Budget a benchmark; fall back to FFI if needed.
 - **Daemon interop with Node**: decided NOT to interop. The two implementations detect each other via the shared lockfile and refuse to start concurrently.
 - **iOS runner protocol drift**: the Swift `ios-runner/` wire protocol is not versioned. Pin to a specific `ios-runner/` build and document it in the port. Rebuild Swift only when the Dart port supports it.
+- **Native runner reuse confirmed (2026-04-23)**: the Swift `ios-runner/` project and `macos-helper/` binary are reused as-is via subprocess — no Dart rewrite, no `dart:ffi` bridge. Keep the platform seam thin so a future FFI-backed replacement is possible but don't extract platform-agnostic helpers speculatively.
 - **Skills / docs**: the `skills/` directory (agent-operating guidance) ships with the npm package. Decide whether to copy them verbatim into the Dart package or leave upstream.
 - **Test execution model**: Node version uses `vitest` for unit + `node --test` for integration. Dart uses `package:test`. Need fixtures + an integration-gated harness; mirror `CONTRIBUTING.md` env vars (`ANDROID_SERIAL`, `IOS_UDID`).
 

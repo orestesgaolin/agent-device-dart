@@ -295,6 +295,89 @@ void main() {
       // timeout test above, which would never settle if the kill were a no-op.
     });
 
+    group('runCmdBackground', () {
+      test('returns live process and completes wait on normal exit', () async {
+        final bg = await runCmdBackground('sh', ['-c', 'echo hi; sleep 0.1']);
+        expect(bg.process, isA<Process>());
+        final result = await bg.wait;
+        expect(result.stdout.trim(), equals('hi'));
+        expect(result.exitCode, equals(0));
+      });
+
+      test('wait throws on non-zero exit when allowFailure is false', () async {
+        final bg = await runCmdBackground('sh', ['-c', 'echo bad >&2; exit 3']);
+        await expectLater(
+          bg.wait,
+          throwsA(
+            isA<AppError>()
+                .having((e) => e.code, 'code', AppErrorCodes.commandFailed)
+                .having((e) => e.details?['exitCode'], 'exitCode', 3)
+                .having((e) => e.details?['stderr'], 'stderr', contains('bad')),
+          ),
+        );
+      });
+
+      test(
+        'wait resolves on non-zero exit when allowFailure is true',
+        () async {
+          final bg = await runCmdBackground('sh', [
+            '-c',
+            'exit 7',
+          ], const ExecOptions(allowFailure: true));
+          final result = await bg.wait;
+          expect(result.exitCode, equals(7));
+        },
+      );
+
+      test('caller can kill the process mid-run', () async {
+        final bg = await runCmdBackground('sh', [
+          '-c',
+          'sleep 30',
+        ], const ExecOptions(allowFailure: true));
+        final killed = bg.process.kill(ProcessSignal.sigkill);
+        expect(killed, isTrue);
+        final result = await bg.wait;
+        expect(result.exitCode, isNot(equals(0)));
+      });
+
+      test('missing binary surfaces TOOL_MISSING', () async {
+        await expectLater(
+          runCmdBackground('nonexistent-bg-xyz-123', []),
+          throwsA(
+            isA<AppError>().having(
+              (e) => e.code,
+              'code',
+              AppErrorCodes.toolMissing,
+            ),
+          ),
+        );
+      });
+    });
+
+    group('runCmdDetached', () {
+      test('spawns detached process and returns handle', () async {
+        // `true` is a POSIX utility that exits 0 immediately.
+        final process = await runCmdDetached('sh', ['-c', 'exit 0']);
+        expect(process, isA<Process>());
+        // A detached process runs independently; we do not await exit. Give
+        // it a moment to ensure start succeeded without error.
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+      });
+
+      test('missing binary surfaces TOOL_MISSING', () async {
+        await expectLater(
+          runCmdDetached('nonexistent-detached-xyz-123', []),
+          throwsA(
+            isA<AppError>().having(
+              (e) => e.code,
+              'code',
+              AppErrorCodes.toolMissing,
+            ),
+          ),
+        );
+      });
+    });
+
     group('edge cases', () {
       test('empty command arguments', () async {
         final result = await runCmd('echo', []);
