@@ -477,10 +477,13 @@ _NativeScrollView? _matchNativeScrollView(
 /// Extracts lines matching the view format (indentation + class name +
 /// coordinates) and builds a tree using an indent-based stack.
 _ViewNode? _parseActivityTopViewTree(String dump) {
-  final root = const _ViewNode(
+  // Not const: children is mutated as we parse; a const empty list would
+  // throw on the first `add`. Same pitfall as ui_hierarchy.dart.
+  // ignore: prefer_const_constructors
+  final root = _ViewNode(
     className: 'root',
-    rect: Rect(x: 0, y: 0, width: 0, height: 0),
-    children: [],
+    rect: const Rect(x: 0, y: 0, width: 0, height: 0),
+    children: <_ViewNode>[],
   );
 
   final stack = [

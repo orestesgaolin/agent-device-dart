@@ -16,6 +16,8 @@ const List<String> _androidSdkBinDirs = [
   'cmdline-tools/tools/bin',
 ];
 
+const String _writeProbeKey = '__agent_device_probe__';
+
 /// Unique, non-empty list from input strings (preserves order, dedupes).
 List<String> _uniqueNonEmpty(List<String> values) {
   final seen = <String>{};
@@ -73,9 +75,27 @@ Future<bool> _pathExists(String candidate) async {
 /// If any are found, sets ANDROID_SDK_ROOT and ANDROID_HOME to the first
 /// detected root, and prepends all found bin dirs to PATH.
 ///
-/// Modifies the provided env map in-place (or Platform.environment if not provided).
+/// Mutates [env] in place. When [env] is null or unmodifiable (e.g.
+/// `Platform.environment`, which is unmodifiable in Dart unlike Node's
+/// `process.env`), a mutable copy is created so the function doesn't
+/// crash. Note: unlike the Node source, mutations here do NOT propagate
+/// to subprocesses automatically — Dart's [Process.start] only inherits
+/// the real process env. To actually extend the PATH seen by `adb`,
+/// plumb the returned map through [ExecOptions.env] at the call site.
+/// TODO(port): thread the augmented env through to exec callers.
 Future<void> ensureAndroidSdkPathConfigured([Map<String, String>? env]) async {
-  env ??= Platform.environment;
+  if (env == null) {
+    env = Map<String, String>.from(Platform.environment);
+  } else {
+    // Probe modifiability — if the caller handed us an unmodifiable view,
+    // fall back to a copy so the in-place writes don't throw.
+    try {
+      env[_writeProbeKey] = env[_writeProbeKey] ?? '';
+      env.remove(_writeProbeKey);
+    } on UnsupportedError {
+      env = Map<String, String>.from(env);
+    }
+  }
 
   final existingDirs = <String>[];
   String? detectedRoot;
