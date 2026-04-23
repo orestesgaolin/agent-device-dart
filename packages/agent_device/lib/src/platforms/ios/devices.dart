@@ -1,8 +1,9 @@
-// Port of agent-device/src/platforms/ios/devices.ts (MVP subset).
+// Port of agent-device/src/platforms/ios/devices.ts.
 //
-// Lists simulators known to `simctl list devices -j`. Physical-device
-// enumeration via `devicectl` lands in Phase 8B alongside the XCUITest
-// runner integration — the MVP targets simulators only.
+// Enumerates iOS devices — simulators via `simctl list devices -j` plus
+// physical iOS/tvOS devices via `xcrun devicectl list devices`. Physical
+// device failures are swallowed so the list still returns simulators
+// even when no device is connected.
 library;
 
 import 'dart:convert';
@@ -12,6 +13,7 @@ import 'package:agent_device/src/backend/platform.dart';
 import 'package:agent_device/src/utils/errors.dart';
 import 'package:agent_device/src/utils/exec.dart';
 
+import 'devicectl.dart';
 import 'simctl.dart';
 
 /// Enumerate iOS (/tvOS) simulators via `xcrun simctl list devices -j`.
@@ -68,6 +70,23 @@ Future<List<BackendDeviceInfo>> listAppleSimulators() async {
     }
   });
   return out;
+}
+
+/// Enumerate every iOS-family device visible to Xcode tooling —
+/// simulators from `simctl` plus physical devices from `devicectl`.
+/// Physical-device lookups fail silently so a missing iOS device doesn't
+/// hide simulators.
+Future<List<BackendDeviceInfo>> listAppleDevices() async {
+  final simulators = await listAppleSimulators();
+  final physical = await listApplePhysicalDevicesViaDevicectl();
+  // Deduplicate on id (very rare but possible if a physical device shares
+  // a UDID with a simulator set entry).
+  final seen = <String>{for (final d in simulators) d.id};
+  final merged = <BackendDeviceInfo>[...simulators];
+  for (final d in physical) {
+    if (seen.add(d.id)) merged.add(d);
+  }
+  return merged;
 }
 
 /// Pick the first booted simulator whose `udid` or `name` optionally

@@ -193,11 +193,12 @@ void main() {
     });
 
     test(
-      'pinch still returns UNSUPPORTED_OPERATION (runner has no handler)',
+      'selector-backed press resolves without UNSUPPORTED_OPERATION leaks',
       () async {
-        // Phase 8B wires most runner commands; pinch needs a multi-touch
-        // helper on the Swift side that isn't in the current runner build.
-        // This asserts the regression door is closed.
+        // Phase 8B+8C: runner is fully wired (snapshot, pinch, clipboard).
+        // `press @e0` goes through snapshot + selector resolution + runner
+        // tap. This asserts the whole chain stays off the UNSUPPORTED_OPERATION
+        // path.
         final r = await cli([
           'press',
           '@e0',
@@ -219,7 +220,7 @@ void main() {
             (env['error'] as Map)['code'],
             isNot('UNSUPPORTED_OPERATION'),
             reason:
-                'After Phase 8B the runner is wired; UNSUPPORTED_OPERATION '
+                'Phase 8B+ runner is fully wired; UNSUPPORTED_OPERATION '
                 'should not leak for selector-backed commands.',
           );
         }

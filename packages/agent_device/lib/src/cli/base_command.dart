@@ -83,10 +83,10 @@ abstract class AgentDeviceCommand extends Command<int> {
   }
 
   /// Resolve the concrete [Backend] for the selected platform. Android
-  /// is fully wired; iOS is in Phase 8A MVP mode — devices / screenshot /
-  /// openApp / closeApp / listApps / getAppState work (simulator only);
-  /// snapshot / tap / fill / selector commands need the XCUITest runner
-  /// bridge and will land in Phase 8B. macOS / Linux are Phase 9.
+  /// and iOS are both fully wired (iOS goes through the Phase 8B
+  /// XCUITest-runner bridge for snapshot + interaction; simulator device
+  /// operations go through `simctl`, physical devices through
+  /// `devicectl`). macOS / Linux are Phase 9.
   Backend resolveBackend() {
     final platform =
         _stringOption('platform') ?? argResults?['platform'] as String?;

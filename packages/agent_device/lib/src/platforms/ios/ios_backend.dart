@@ -16,6 +16,7 @@ import 'package:agent_device/src/utils/errors.dart';
 import 'package:path/path.dart' as p;
 
 import 'app_lifecycle.dart';
+import 'devicectl.dart';
 import 'devices.dart';
 import 'runner_client.dart';
 import 'screenshot.dart';
@@ -271,6 +272,66 @@ class IosBackend extends Backend {
     return null;
   }
 
+  @override
+  Future<BackendActionResult> pinch(
+    BackendCommandContext ctx,
+    BackendPinchOptions options,
+  ) async {
+    final session = await _runner(ctx);
+    await _sendOrThrow(session, {
+      'command': 'pinch',
+      'scale': options.scale,
+      if (options.center != null) 'x': options.center!.x.round(),
+      if (options.center != null) 'y': options.center!.y.round(),
+    });
+    return null;
+  }
+
+  @override
+  Future<String> getClipboard(BackendCommandContext ctx) async {
+    final udid = _udid(ctx);
+    final r = await Process.run(
+      'xcrun',
+      ['simctl', 'pbpaste', udid],
+      stdoutEncoding: utf8,
+      stderrEncoding: utf8,
+    );
+    if (r.exitCode != 0) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'Failed to read iOS simulator clipboard.',
+        details: {
+          'stdout': r.stdout,
+          'stderr': r.stderr,
+          'exitCode': r.exitCode,
+        },
+      );
+    }
+    final text = (r.stdout as String).replaceAll('\r\n', '\n');
+    return text.endsWith('\n') ? text.substring(0, text.length - 1) : text;
+  }
+
+  @override
+  Future<BackendActionResult> setClipboard(
+    BackendCommandContext ctx,
+    String text,
+  ) async {
+    final udid = _udid(ctx);
+    final proc = await Process.start('xcrun', ['simctl', 'pbcopy', udid]);
+    proc.stdin.add(utf8.encode(text));
+    await proc.stdin.close();
+    final exitCode = await proc.exitCode;
+    if (exitCode != 0) {
+      final err = await proc.stderr.transform(utf8.decoder).join();
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'Failed to write iOS simulator clipboard.',
+        details: {'stderr': err, 'exitCode': exitCode},
+      );
+    }
+    return null;
+  }
+
   // =========================================================================
   // App Management (from Phase 8A)
   // =========================================================================
@@ -287,7 +348,13 @@ class IosBackend extends Backend {
         'openApp on iOS requires target.bundleId / appId / app (a bundle id)',
       );
     }
-    await openIosApp(_udid(ctx), bundleId);
+    final udid = _udid(ctx);
+    final kind = await _resolveKind(udid);
+    if (kind == 'device') {
+      await launchIosDeviceProcess(udid, bundleId);
+    } else {
+      await openIosApp(udid, bundleId);
+    }
     return null;
   }
 
@@ -299,7 +366,13 @@ class IosBackend extends Backend {
     if (app == null || app.isEmpty) {
       unsupported('closeApp on iOS requires a bundle id');
     }
-    await closeIosApp(_udid(ctx), app);
+    final udid = _udid(ctx);
+    final kind = await _resolveKind(udid);
+    if (kind == 'device') {
+      await terminateIosDeviceProcess(udid, app);
+    } else {
+      await closeIosApp(udid, app);
+    }
     return null;
   }
 
@@ -309,7 +382,21 @@ class IosBackend extends Backend {
     BackendAppListFilter? filter,
   ]) async {
     final userOnly = filter == BackendAppListFilter.userInstalled;
-    final apps = await listIosApps(_udid(ctx), userOnly: userOnly);
+    final udid = _udid(ctx);
+    final kind = await _resolveKind(udid);
+    if (kind == 'device') {
+      final apps = await listIosDeviceApps(udid, userOnly: userOnly);
+      return apps
+          .map(
+            (a) => BackendAppInfo(
+              id: a.bundleId,
+              name: a.name,
+              bundleId: a.bundleId,
+            ),
+          )
+          .toList();
+    }
+    final apps = await listIosApps(udid, userOnly: userOnly);
     return apps
         .map(
           (a) => BackendAppInfo(
@@ -338,7 +425,30 @@ class IosBackend extends Backend {
   Future<List<BackendDeviceInfo>> listDevices(
     BackendCommandContext ctx, [
     BackendDeviceFilter? filter,
-  ]) => listAppleSimulators();
+  ]) => listAppleDevices();
+
+  /// Resolve whether [udid] is a simulator or a physical device. Physical
+  /// iOS devices go through `devicectl`; simulators go through `simctl`.
+  /// Cached for the process lifetime to avoid repeat enumeration on every
+  /// action. Unknown UDIDs default to `simulator` to preserve the
+  /// pre-devicectl behaviour.
+  Future<String> _resolveKind(String udid) async {
+    final cached = _IosKindCache.instance.get(udid);
+    if (cached != null) return cached;
+    final devices = await listAppleDevices();
+    final match = devices.firstWhere(
+      (d) => d.id == udid,
+      orElse: () => BackendDeviceInfo(
+        id: udid,
+        name: udid,
+        platform: AgentDeviceBackendPlatform.ios,
+        kind: 'simulator',
+      ),
+    );
+    final kind = match.kind ?? 'simulator';
+    _IosKindCache.instance.set(udid, kind);
+    return kind;
+  }
 }
 
 Future<void> _sendOrThrow(
@@ -415,4 +525,16 @@ class _IosRunnerCache {
   IosRunnerSession? get(String udid) => _sessions[udid];
   void set(String udid, IosRunnerSession session) => _sessions[udid] = session;
   IosRunnerSession? pop(String udid) => _sessions.remove(udid);
+}
+
+/// Per-process cache of UDID → kind (`simulator` | `device`). Avoids a
+/// full `simctl list` + `devicectl list` round-trip on every app action.
+class _IosKindCache {
+  _IosKindCache._();
+  static final _IosKindCache instance = _IosKindCache._();
+
+  final Map<String, String> _kinds = {};
+
+  String? get(String udid) => _kinds[udid];
+  void set(String udid, String kind) => _kinds[udid] = kind;
 }

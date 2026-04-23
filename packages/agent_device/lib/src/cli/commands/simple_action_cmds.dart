@@ -6,6 +6,7 @@ library;
 
 import 'package:agent_device/src/backend/backend.dart';
 import 'package:agent_device/src/backend/device_info.dart';
+import 'package:agent_device/src/snapshot/snapshot.dart' show Point;
 import 'package:agent_device/src/utils/errors.dart';
 
 import '../base_command.dart';
@@ -352,6 +353,54 @@ class ScrollCommand extends AgentDeviceCommand {
       'direction': direction,
       'result': result,
     }, humanFormat: (_) => 'scrolled $direction');
+    return 0;
+  }
+}
+
+class PinchCommand extends AgentDeviceCommand {
+  PinchCommand() {
+    argParser
+      ..addOption('scale', help: 'Pinch scale. <1 zooms out, >1 zooms in.')
+      ..addOption('x', help: 'Optional center-x (default: viewport center).')
+      ..addOption('y', help: 'Optional center-y (default: viewport center).');
+  }
+
+  @override
+  String get name => 'pinch';
+
+  @override
+  String get description => 'Pinch to zoom (--scale required).';
+
+  @override
+  Future<int> run() async {
+    final scaleRaw = argResults?['scale'] as String? ?? positionals.firstOrNull;
+    final scale = scaleRaw == null ? null : double.tryParse(scaleRaw);
+    if (scale == null || scale <= 0) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'pinch requires --scale <positive-number>.',
+      );
+    }
+    final xs = argResults?['x'] as String?;
+    final ys = argResults?['y'] as String?;
+    Point? center;
+    if (xs != null && ys != null) {
+      final x = int.tryParse(xs);
+      final y = int.tryParse(ys);
+      if (x == null || y == null) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'pinch --x / --y must be integers.',
+        );
+      }
+      center = Point(x: x.toDouble(), y: y.toDouble());
+    }
+    final device = await openAgentDevice();
+    await device.pinch(scale: scale, center: center);
+    emitResult({
+      'pinched': scale,
+      if (center != null) 'center': [center.x, center.y],
+    }, humanFormat: (_) => 'pinched scale=$scale');
     return 0;
   }
 }

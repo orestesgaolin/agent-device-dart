@@ -202,6 +202,40 @@ void main() {
       expect(port.exitCode, 0, reason: port.stderr);
     });
 
+    test('pinch zoom round-trips via runner', () async {
+      // Phase 8C polish: runner has a pinch handler; Dart now calls it.
+      // Any positive scale proves the wire format (command, scale, x?, y?)
+      // round-trips without UNSUPPORTED_OPERATION.
+      final r = await cli(
+        ['pinch', '--scale', '1.5', '--json'],
+        stateDir: stateDir.path,
+        udid: bootedUdid,
+      );
+      expect(r.exitCode, 0, reason: r.stderr);
+      final env = jsonDecode(r.stdout.trim().split('\n').first) as Map;
+      expect(env['success'], isTrue, reason: r.stdout);
+    });
+
+    test('clipboard set + read round-trip (simctl)', () async {
+      final marker = 'ad-live-${DateTime.now().microsecondsSinceEpoch}';
+      final setR = await cli(
+        ['clipboard', '--set', marker, '--json'],
+        stateDir: stateDir.path,
+        udid: bootedUdid,
+      );
+      expect(setR.exitCode, 0, reason: setR.stderr);
+
+      final getR = await cli(
+        ['clipboard', '--json'],
+        stateDir: stateDir.path,
+        udid: bootedUdid,
+      );
+      expect(getR.exitCode, 0, reason: getR.stderr);
+      final env = jsonDecode(getR.stdout.trim().split('\n').first) as Map;
+      expect(env['success'], isTrue);
+      expect((env['data'] as Map)['clipboard'], marker);
+    });
+
     test(
       'runner record is persisted at ~/.agent-device/ios-runners/<udid>.json',
       () async {
