@@ -7,10 +7,12 @@ library;
 
 import 'package:agent_device/src/backend/backend.dart';
 import 'package:agent_device/src/platforms/platform_selector.dart';
+import 'package:agent_device/src/selectors/selectors.dart';
 import 'package:agent_device/src/snapshot/snapshot.dart';
 import 'package:agent_device/src/utils/errors.dart';
 
 import 'contract.dart';
+import 'interaction_target.dart';
 import 'session_store.dart';
 
 /// Selector filter used by [AgentDevice.open] to pick which connected
@@ -209,6 +211,31 @@ class AgentDevice {
   // Interaction
   // =========================================================================
 
+  /// Resolve an [InteractionTarget] to an absolute screen [Point].
+  ///
+  /// [PointTarget]s are returned as-is. [RefTarget] and [SelectorTarget]
+  /// trigger a snapshot (unless one is supplied via [snapshotOverride]) and
+  /// look up the matching node, then return `centerOfRect(node.rect)`.
+  /// Throws [AppError] with `AMBIGUOUS_MATCH` or `COMMAND_FAILED` when
+  /// resolution fails.
+  Future<Point> resolveTarget(
+    InteractionTarget target, {
+    BackendSnapshotResult? snapshotOverride,
+  }) async {
+    if (target is PointTarget) return target.point;
+    final snap = snapshotOverride ?? await snapshot();
+    final node = await _resolveNode(target, snap);
+    final rect = node.rect;
+    if (rect == null) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'Resolved target has no rect; cannot derive a tap point.',
+        details: {'target': target.toString()},
+      );
+    }
+    return centerOfRect(rect);
+  }
+
   Future<void> tap(num x, num y, {BackendTapOptions? options}) async {
     await backend.tap(
       await _ctx(),
@@ -217,10 +244,34 @@ class AgentDevice {
     );
   }
 
+  /// Tap resolved from an [InteractionTarget] (point, `@ref`, or selector).
+  Future<void> tapTarget(
+    InteractionTarget target, {
+    BackendTapOptions? options,
+  }) async {
+    final point = await resolveTarget(target);
+    await backend.tap(await _ctx(), point, options);
+  }
+
   Future<void> fill(num x, num y, String text, {int? delayMs}) async {
     await backend.fill(
       await _ctx(),
       Point(x: x.toDouble(), y: y.toDouble()),
+      text,
+      delayMs == null ? null : BackendFillOptions(delayMs: delayMs),
+    );
+  }
+
+  /// Fill resolved from an [InteractionTarget].
+  Future<void> fillTarget(
+    InteractionTarget target,
+    String text, {
+    int? delayMs,
+  }) async {
+    final point = await resolveTarget(target);
+    await backend.fill(
+      await _ctx(),
+      point,
       text,
       delayMs == null ? null : BackendFillOptions(delayMs: delayMs),
     );
@@ -238,10 +289,31 @@ class AgentDevice {
     await backend.focus(await _ctx(), Point(x: x.toDouble(), y: y.toDouble()));
   }
 
+  /// Focus resolved from an [InteractionTarget].
+  Future<void> focusTarget(InteractionTarget target) async {
+    final point = await resolveTarget(target);
+    await backend.focus(await _ctx(), point);
+  }
+
   Future<void> longPress(num x, num y, {int? durationMs}) async {
     await backend.longPress(
       await _ctx(),
       Point(x: x.toDouble(), y: y.toDouble()),
+      durationMs == null
+          ? null
+          : BackendLongPressOptions(durationMs: durationMs),
+    );
+  }
+
+  /// Long-press resolved from an [InteractionTarget].
+  Future<void> longPressTarget(
+    InteractionTarget target, {
+    int? durationMs,
+  }) async {
+    final point = await resolveTarget(target);
+    await backend.longPress(
+      await _ctx(),
+      point,
       durationMs == null
           ? null
           : BackendLongPressOptions(durationMs: durationMs),
@@ -447,6 +519,259 @@ class AgentDevice {
       await _ctx(),
       BackendInstallTarget(app: app, source: BackendInstallSourcePath(path)),
     );
+  }
+
+  // =========================================================================
+  // Query: find / get / is / wait
+  // =========================================================================
+
+  /// Search the current snapshot for nodes whose visible text contains
+  /// [text] (case-insensitive). Returns a list of `{ref, label, rect}`
+  /// maps so the caller can inspect or feed the refs back into [tapTarget]
+  /// etc. Takes a fresh snapshot unless one is supplied.
+  Future<List<Map<String, Object?>>> find(
+    String text, {
+    BackendSnapshotResult? snapshotOverride,
+  }) async {
+    if (text.trim().isEmpty) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'find: query must be non-empty.',
+      );
+    }
+    final snap = snapshotOverride ?? await snapshot();
+    final needle = text.toLowerCase();
+    final nodes = _nodesOf(snap);
+    final hits = <Map<String, Object?>>[];
+    for (final n in nodes) {
+      final haystacks = <String?>[n.label, n.value, n.identifier];
+      final hit = haystacks
+          .whereType<String>()
+          .map((s) => s.toLowerCase())
+          .any((s) => s.contains(needle));
+      if (!hit) continue;
+      hits.add(<String, Object?>{
+        'ref': n.ref,
+        'label': n.label,
+        'value': n.value,
+        'identifier': n.identifier,
+        'type': n.type,
+        if (n.rect != null)
+          'rect': {
+            'x': n.rect!.x,
+            'y': n.rect!.y,
+            'width': n.rect!.width,
+            'height': n.rect!.height,
+          },
+      });
+    }
+    return hits;
+  }
+
+  /// Read a named attribute off the node addressed by [target]. [attr] is
+  /// one of `text`, `label`, `value`, `identifier`, `type`, `role`, `rect`,
+  /// `ref`. Unknown [attr] values throw `INVALID_ARGS`.
+  Future<Object?> getAttr(String attr, InteractionTarget target) async {
+    final snap = await snapshot();
+    final node = await _resolveNode(target, snap);
+    switch (attr) {
+      case 'ref':
+        return node.ref;
+      case 'label':
+        return node.label;
+      case 'value':
+        return node.value;
+      case 'identifier':
+        return node.identifier;
+      case 'type':
+        return node.type;
+      case 'role':
+        return node.role;
+      case 'text':
+        // Prefer label over value; many Android widgets carry the human
+        // text on `label`.
+        return node.label?.trim().isNotEmpty == true
+            ? node.label
+            : (node.value?.trim().isNotEmpty == true
+                  ? node.value
+                  : node.identifier);
+      case 'rect':
+        final r = node.rect;
+        if (r == null) return null;
+        return {'x': r.x, 'y': r.y, 'width': r.width, 'height': r.height};
+    }
+    throw AppError(
+      AppErrorCodes.invalidArgs,
+      'Unknown attribute "$attr". Expected one of: '
+      'ref, label, value, identifier, type, role, text, rect.',
+      details: {'attr': attr},
+    );
+  }
+
+  /// Evaluate a predicate (e.g. `visible`, `hidden`, `editable`,
+  /// `selected`, `exists`, `text=Submit`) against [target]. [predicate] is
+  /// the bare name (e.g. `'visible'`) OR a `text=...` expression; pass the
+  /// expected-text portion separately via [expectedText] for a stable
+  /// programmatic API.
+  ///
+  /// Returns an [IsPredicateResult] whose `pass` field tells you whether
+  /// the predicate held.
+  Future<IsPredicateResult> isPredicate(
+    String predicate,
+    InteractionTarget target, {
+    String? expectedText,
+  }) async {
+    if (!isSupportedPredicate(predicate)) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'Unsupported is-predicate: $predicate',
+        details: {
+          'predicate': predicate,
+          'supported': const [
+            'visible',
+            'hidden',
+            'exists',
+            'editable',
+            'selected',
+            'text',
+          ],
+        },
+      );
+    }
+    final snap = await snapshot();
+    final nodes = _nodesOf(snap);
+    SnapshotNode? node;
+    try {
+      node = await _resolveNode(target, snap);
+    } on AppError catch (e) {
+      // `exists` legitimately wants to observe "no match" → pass=false.
+      // `hidden` for a ref/selector that doesn't exist on screen is also
+      // a passing assertion.
+      if (e.code == AppErrorCodes.commandFailed &&
+          (predicate == 'exists' || predicate == 'hidden')) {
+        return IsPredicateResult(
+          pass: predicate == 'hidden',
+          actualText: '',
+          details: 'No node matched the target.',
+        );
+      }
+      rethrow;
+    }
+    return evaluateIsPredicate(
+      predicate: predicate,
+      node: node,
+      nodes: nodes,
+      expectedText: expectedText,
+      platform: backend.platform.name,
+    );
+  }
+
+  /// Poll until [predicate] on [target] passes, with [timeout] and
+  /// [pollInterval] knobs. Returns the final [IsPredicateResult]. Times
+  /// out with `COMMAND_FAILED` when the condition doesn't hold before the
+  /// deadline.
+  Future<IsPredicateResult> wait(
+    String predicate,
+    InteractionTarget target, {
+    Duration timeout = const Duration(seconds: 10),
+    Duration pollInterval = const Duration(milliseconds: 400),
+    String? expectedText,
+  }) async {
+    final deadline = clock.now() + timeout.inMilliseconds;
+    IsPredicateResult last = const IsPredicateResult(
+      pass: false,
+      actualText: '',
+      details: '',
+    );
+    while (true) {
+      try {
+        last = await isPredicate(predicate, target, expectedText: expectedText);
+      } on AppError catch (e) {
+        // Treat transient resolution failures as "not yet true" — polling.
+        if (e.code != AppErrorCodes.commandFailed) rethrow;
+        last = IsPredicateResult(
+          pass: false,
+          actualText: '',
+          details: e.message,
+        );
+      }
+      if (last.pass) return last;
+      if (clock.now() >= deadline) {
+        throw AppError(
+          AppErrorCodes.commandFailed,
+          'wait "$predicate" timed out after ${timeout.inMilliseconds}ms.',
+          details: {
+            'predicate': predicate,
+            'timeoutMs': timeout.inMilliseconds,
+            'lastActualText': last.actualText,
+            'lastDetails': last.details,
+          },
+        );
+      }
+      await clock.sleep(pollInterval);
+    }
+  }
+
+  /// Backend snapshot nodes are typed `List<Object?>?` at the contract
+  /// boundary (the Backend type is intentionally loose). The real payload
+  /// is always `List<SnapshotNode>` once `attachRefs` has run on the
+  /// concrete backend. Narrow the cast here so every caller downstream
+  /// sees a strong type.
+  List<SnapshotNode> _nodesOf(BackendSnapshotResult snap) {
+    final raw = snap.nodes;
+    if (raw == null) return const [];
+    if (raw is List<SnapshotNode>) return raw;
+    return raw.whereType<SnapshotNode>().toList();
+  }
+
+  /// Internal: resolve [target] all the way to a [SnapshotNode] (rather
+  /// than a [Point]). Shared by [getAttr], [isPredicate], and [wait].
+  Future<SnapshotNode> _resolveNode(
+    InteractionTarget target,
+    BackendSnapshotResult snap,
+  ) async {
+    final nodes = _nodesOf(snap);
+    if (nodes.isEmpty) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'Cannot resolve $target: the snapshot is empty.',
+      );
+    }
+    if (target is PointTarget) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'Point targets are not supported for find/get/is/wait — '
+        'pass a @ref or selector.',
+      );
+    }
+    if (target is RefTarget) {
+      final node = findNodeByRef(nodes, target.ref);
+      if (node == null) {
+        throw AppError(
+          AppErrorCodes.commandFailed,
+          'Ref @${target.ref} not found in the current snapshot.',
+          details: {'ref': target.ref},
+        );
+      }
+      return node;
+    }
+    if (target is SelectorTarget) {
+      final resolution = resolveSelectorChain(
+        nodes,
+        target.chain,
+        platform: backend.platform.name,
+        disambiguateAmbiguous: true,
+      );
+      if (resolution == null) {
+        throw AppError(
+          AppErrorCodes.commandFailed,
+          'Selector did not match any node: ${target.source}',
+          details: {'selector': target.source},
+        );
+      }
+      return resolution.node;
+    }
+    throw StateError('unreachable');
   }
 
   // =========================================================================

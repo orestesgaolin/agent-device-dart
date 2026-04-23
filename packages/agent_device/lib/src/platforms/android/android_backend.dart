@@ -61,8 +61,11 @@ class AndroidBackend extends Backend {
       raw: options?.raw,
     );
     final result = await snapshotAndroid(_serial(ctx), options: opts);
+    // Attach @e<N> refs so Phase 7's target resolution (`findNodeByRef`)
+    // works against the snapshot.
+    final withRefs = attachRefs(result.nodes);
     return BackendSnapshotResult(
-      nodes: result.nodes,
+      nodes: withRefs,
       truncated: result.truncated,
       analysis: BackendSnapshotAnalysis(
         rawNodeCount: result.analysis.rawNodeCount,

@@ -7,6 +7,7 @@ import 'package:args/command_runner.dart';
 
 import 'commands/devices_cmd.dart';
 import 'commands/screenshot_cmd.dart';
+import 'commands/selector_cmds.dart';
 import 'commands/session_cmd.dart';
 import 'commands/simple_action_cmds.dart';
 import 'commands/snapshot_cmd.dart';
@@ -68,6 +69,11 @@ Future<int> runCli(List<String> argv) async {
     ..addCommand(AppStateCommand())
     ..addCommand(AppsCommand())
     ..addCommand(ClipboardCommand())
+    ..addCommand(PressCommand())
+    ..addCommand(FindCommand())
+    ..addCommand(GetCommand())
+    ..addCommand(IsCommand())
+    ..addCommand(WaitCommand())
     ..addCommand(SessionCommand());
 
   // Decide JSON mode for top-level error reporting by peeking at argv —

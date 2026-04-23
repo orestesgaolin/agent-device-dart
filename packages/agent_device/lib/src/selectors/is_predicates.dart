@@ -57,6 +57,12 @@ IsPredicateResult evaluateIsPredicate({
     case 'hidden':
       pass = !visible;
       break;
+    case 'exists':
+      // If we got a node at all, the selector/ref matched — exists is
+      // true. Callers that want to observe "no match" must guard against
+      // the resolution throwing before this function is invoked.
+      pass = true;
+      break;
     case 'editable':
       pass = editable;
       break;

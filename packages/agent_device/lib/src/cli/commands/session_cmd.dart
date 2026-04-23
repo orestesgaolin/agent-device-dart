@@ -82,8 +82,9 @@ class SessionShowCommand extends AgentDeviceCommand {
         if (record.backendSessionId != null) {
           buf.writeln('backendSessionId: ${record.backendSessionId}');
         }
-        if (record.metadata != null)
+        if (record.metadata != null) {
           buf.writeln('metadata: ${record.metadata}');
+        }
         return buf.toString().trimRight();
       },
     );
