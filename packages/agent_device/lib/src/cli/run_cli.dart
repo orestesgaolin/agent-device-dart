@@ -63,6 +63,7 @@ Future<int> runCli(List<String> argv) async {
     ..addCommand(BackCommand())
     ..addCommand(HomeCommand())
     ..addCommand(AppSwitcherCommand())
+    ..addCommand(RotateCommand())
     ..addCommand(SwipeCommand())
     ..addCommand(ScrollCommand())
     ..addCommand(LongPressCommand())

@@ -5,6 +5,7 @@
 library;
 
 import 'package:agent_device/src/backend/backend.dart';
+import 'package:agent_device/src/backend/device_info.dart';
 import 'package:agent_device/src/utils/errors.dart';
 
 import '../base_command.dart';
@@ -211,6 +212,50 @@ class HomeCommand extends AgentDeviceCommand {
     final device = await openAgentDevice();
     await device.pressHome();
     emitResult({'pressed': 'home'}, humanFormat: (_) => 'pressed home');
+    return 0;
+  }
+}
+
+class RotateCommand extends AgentDeviceCommand {
+  @override
+  String get name => 'rotate';
+
+  @override
+  String get description =>
+      'Rotate the device (portrait | portrait-upside-down | landscape-left | landscape-right).';
+
+  @override
+  Future<int> run() async {
+    final args = positionals;
+    if (args.isEmpty) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'rotate requires an orientation '
+        '(portrait | portrait-upside-down | landscape-left | landscape-right).',
+      );
+    }
+    final raw = args.first;
+    final orientation = switch (raw) {
+      'portrait' => BackendDeviceOrientation.portrait,
+      'portrait-upside-down' ||
+      'portraitUpsideDown' => BackendDeviceOrientation.portraitUpsideDown,
+      'landscape-left' ||
+      'landscapeLeft' => BackendDeviceOrientation.landscapeLeft,
+      'landscape-right' ||
+      'landscapeRight' => BackendDeviceOrientation.landscapeRight,
+      _ => null,
+    };
+    if (orientation == null) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'Unknown orientation "$raw". Expected portrait | '
+        'portrait-upside-down | landscape-left | landscape-right.',
+        details: {'orientation': raw},
+      );
+    }
+    final device = await openAgentDevice();
+    await device.rotate(orientation);
+    emitResult({'rotated': raw}, humanFormat: (_) => 'rotated to $raw');
     return 0;
   }
 }

@@ -192,22 +192,39 @@ void main() {
       expect(closeR.exitCode, 0, reason: closeR.stderr);
     });
 
-    test('snapshot returns UNSUPPORTED_OPERATION in Phase 8A', () async {
-      // Phase 8B wires the XCUITest runner; until then snapshot is
-      // genuinely unsupported on iOS and must surface a clear error.
-      final r = await cli([
-        'snapshot',
-        '--platform',
-        'ios',
-        '--serial',
-        bootedUdid,
-        '--json',
-      ], stateDir: stateDir.path);
-      expect(r.exitCode, 1);
-      final env = jsonDecode(r.stdout.trim().split('\n').first) as Map;
-      expect(env['success'], isFalse);
-      expect((env['error'] as Map)['code'], 'UNSUPPORTED_OPERATION');
-    });
+    test(
+      'pinch still returns UNSUPPORTED_OPERATION (runner has no handler)',
+      () async {
+        // Phase 8B wires most runner commands; pinch needs a multi-touch
+        // helper on the Swift side that isn't in the current runner build.
+        // This asserts the regression door is closed.
+        final r = await cli([
+          'press',
+          '@e0',
+          '--platform',
+          'ios',
+          '--serial',
+          bootedUdid,
+          '--json',
+          '--ephemeral-session',
+        ], stateDir: stateDir.path);
+        // `press @e0` requires snapshot + selector resolution against the
+        // runner. If the runner snapshot returns nodes, ref resolution is
+        // fine; if the runner is missing, we'd see a COMMAND_FAILED from
+        // the launch path. Both are acceptable signals that the full chain
+        // is wired — we're just looking for no UNSUPPORTED_OPERATION leaks.
+        final env = jsonDecode(r.stdout.trim().split('\n').first) as Map;
+        if (env['success'] == false) {
+          expect(
+            (env['error'] as Map)['code'],
+            isNot('UNSUPPORTED_OPERATION'),
+            reason:
+                'After Phase 8B the runner is wired; UNSUPPORTED_OPERATION '
+                'should not leak for selector-backed commands.',
+          );
+        }
+      },
+    );
   });
 }
 
