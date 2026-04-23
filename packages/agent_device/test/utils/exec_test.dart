@@ -286,6 +286,13 @@ void main() {
           expect(e.details?['timeoutMs'], equals(200));
         }
       });
+
+      // Note on SIGKILL vs SIGTERM: the timeout sends SIGKILL (matching the TS
+      // source). A behavioral test can't distinguish the two signals because
+      // `runCmd` awaits stdout/stderr to drain — any orphaned grandchild with
+      // inherited pipes keeps the Future pending regardless of the signal
+      // used. SIGKILL-vs-SIGTERM is verified by code review and the plain
+      // timeout test above, which would never settle if the kill were a no-op.
     });
 
     group('edge cases', () {
@@ -302,6 +309,40 @@ void main() {
       test('rejects invalid executable command', () {
         expect(
           () => runCmd('../path/to/cmd', []),
+          throwsA(
+            isA<AppError>().having(
+              (e) => e.code,
+              'code',
+              equals(AppErrorCodes.invalidArgs),
+            ),
+          ),
+        );
+      });
+
+      test('accepts digit 0 in command name (regression)', () async {
+        // Previously the null-byte guard incorrectly checked for the digit
+        // '0' instead of '\x00', rejecting any command containing '0'.
+        final result = await runCmd('echo', ['chrome-v100']);
+        expect(result.exitCode, equals(0));
+        expect(result.stdout.trim(), equals('chrome-v100'));
+      });
+
+      test('accepts digit 0 in override path (regression)', () async {
+        // Same bug surfaced in resolveFileOverridePath / resolveExecutableOverridePath.
+        // An absolute path containing '0' must be accepted.
+        final tmp = await File(
+          '${Directory.systemTemp.path}/ad-exec-test-v10-${DateTime.now().microsecondsSinceEpoch}.txt',
+        ).create();
+        addTearDown(() async {
+          if (await tmp.exists()) await tmp.delete();
+        });
+        final result = await resolveFileOverridePath(tmp.path, 'TEST_ENV');
+        expect(result, equals(tmp.path));
+      });
+
+      test('rejects command name containing NUL byte', () {
+        expect(
+          () => runCmd('echo\x00evil', []),
           throwsA(
             isA<AppError>().having(
               (e) => e.code,

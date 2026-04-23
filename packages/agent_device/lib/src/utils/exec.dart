@@ -309,7 +309,7 @@ Future<RunCmdResult> _runCmdAsync(
   if (timeoutMs != null && timeoutMs > 0) {
     timeoutTimer = Timer(Duration(milliseconds: timeoutMs), () {
       didTimeout = true;
-      process.kill(ProcessSignal.sigterm);
+      process.kill(ProcessSignal.sigkill);
     });
   }
 
@@ -414,7 +414,7 @@ String _normalizeExecutableCommand(String cmd) {
 
 String? _normalizeExecutableLookup(String cmd) {
   final candidate = cmd.trim();
-  if (candidate.isEmpty || candidate.contains('0')) return null;
+  if (candidate.isEmpty || candidate.contains('\x00')) return null;
   if (p.isAbsolute(candidate)) return candidate;
   if (candidate.contains('/') || candidate.contains('\\')) return null;
   return _bareCommandRegex.hasMatch(candidate) ? candidate : null;
@@ -423,7 +423,7 @@ String? _normalizeExecutableLookup(String cmd) {
 String? _normalizeOverridePath(String? rawPath, String envName, String kind) {
   final candidate = rawPath?.trim();
   if (candidate == null || candidate.isEmpty) return null;
-  if (!p.isAbsolute(candidate) || candidate.contains('0')) {
+  if (!p.isAbsolute(candidate) || candidate.contains('\x00')) {
     throw AppError(
       AppErrorCodes.invalidArgs,
       '$envName must be an absolute $kind path, not ${jsonEncode(rawPath)}',
