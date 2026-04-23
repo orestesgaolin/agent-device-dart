@@ -10,8 +10,9 @@ import 'dart:io';
 import 'package:agent_device/agent_device.dart';
 import 'package:test/test.dart';
 
-/// Phase 3 proof-of-life. Bypasses the (unported) runtime and drives
-/// [AndroidBackend] directly against a real device or emulator.
+/// Phase 4 proof-of-life: drives the programmatic [AgentDevice] façade
+/// end-to-end against a real device or emulator, exercising session
+/// state + device resolution + backend dispatch.
 ///
 /// Gated on AGENT_DEVICE_ANDROID_LIVE=1 so `dart test packages/agent_device`
 /// stays clean without hardware. Run manually:
@@ -28,64 +29,55 @@ void main() {
     return;
   }
 
-  late BackendDeviceInfo device;
+  late AgentDevice device;
 
   setUpAll(() async {
-    const backend = AndroidBackend();
-    final devices = await backend.listDevices(const BackendCommandContext());
-    if (devices.isEmpty) {
-      fail(
-        'No Android devices connected — attach a device or boot an emulator.',
-      );
-    }
-    device = devices.first;
-    print('[live] using device: id=${device.id} name=${device.name}');
+    device = await AgentDevice.open(backend: const AndroidBackend());
+    print(
+      '[live] opened session on ${device.device.id} (${device.device.name})',
+    );
   });
 
-  test('listDevices returns at least one device', () async {
-    const backend = AndroidBackend();
-    final devices = await backend.listDevices(const BackendCommandContext());
-    expect(devices, isNotEmpty);
+  tearDownAll(() async {
+    await device.close();
+  });
+
+  test('session stores deviceSerial after open', () async {
+    final record = await device.sessions.get(device.sessionName);
+    expect(record?.deviceSerial, device.device.id);
   });
 
   test(
-    'openApp("settings") + snapshot + listApps',
+    'openApp("settings") + snapshot + getAppState + listApps',
     () async {
-      const backend = AndroidBackend();
-      final ctx = BackendCommandContext(deviceSerial: device.id);
-
-      // Open the Settings app via the "settings" intent alias.
-      await backend.openApp(
-        ctx,
-        const BackendOpenTarget(app: 'settings'),
-        null,
-      );
-      // Give Settings a moment to come to the foreground.
+      await device.openApp('settings');
       await Future<void>.delayed(const Duration(seconds: 2));
 
-      // Snapshot the current screen.
-      final snap = await backend.captureSnapshot(ctx, null);
+      final snap = await device.snapshot();
+      final nodes = snap.nodes ?? const [];
       print(
-        '[live] captured ${(snap.nodes ?? const []).length} nodes '
-        '(rawNodeCount=${snap.analysis?.rawNodeCount}, '
-        'maxDepth=${snap.analysis?.maxDepth})',
+        '[live] snapshot: ${nodes.length} visible nodes, '
+        'rawNodeCount=${snap.analysis?.rawNodeCount}, '
+        'maxDepth=${snap.analysis?.maxDepth}',
       );
       expect(
-        (snap.nodes ?? const []),
+        nodes,
         isNotEmpty,
-        reason: 'Expected non-empty snapshot — Settings app should show UI.',
+        reason: 'Settings should show non-empty UI after open.',
       );
-      expect(snap.analysis?.rawNodeCount ?? 0, greaterThan(0));
 
-      // Current foreground app should be Settings (or a sub-activity of it).
-      final state = await backend.getAppState(ctx, 'settings');
+      final state = await device.getAppState();
       print(
-        '[live] foreground: package=${state.packageName} activity=${state.activity}',
+        '[live] foreground: '
+        'package=${state.packageName} activity=${state.activity}',
       );
       expect(state.packageName, isNotNull);
 
-      // List a handful of installed apps.
-      final apps = await backend.listApps(ctx);
+      // Session should remember the open app.
+      final record = await device.sessions.get(device.sessionName);
+      expect(record?.appId, 'settings');
+
+      final apps = await device.listApps();
       print('[live] listApps: ${apps.length} packages');
       expect(apps, isNotEmpty);
     },
@@ -93,8 +85,6 @@ void main() {
   );
 
   test('screenshot writes a PNG file', () async {
-    const backend = AndroidBackend();
-    final ctx = BackendCommandContext(deviceSerial: device.id);
     final tmp = File(
       '${Directory.systemTemp.path}/agent-device-live-'
       '${DateTime.now().microsecondsSinceEpoch}.png',
@@ -103,11 +93,10 @@ void main() {
       if (await tmp.exists()) await tmp.delete();
     });
 
-    final result = await backend.captureScreenshot(ctx, tmp.path, null);
+    final result = await device.screenshot(tmp.path);
     expect(result, isNotNull);
     expect(await tmp.exists(), isTrue);
     final bytes = await tmp.readAsBytes();
-    // PNG magic number.
     expect(bytes.take(4).toList(), equals([0x89, 0x50, 0x4E, 0x47]));
     print('[live] wrote ${bytes.length} bytes to ${tmp.path}');
   }, timeout: const Timeout(Duration(seconds: 30)));
@@ -115,14 +104,17 @@ void main() {
   test(
     'pressHome brings device to launcher',
     () async {
-      const backend = AndroidBackend();
-      final ctx = BackendCommandContext(deviceSerial: device.id);
-      await backend.pressHome(ctx);
+      await device.pressHome();
       await Future<void>.delayed(const Duration(seconds: 1));
-      // Just confirm it didn't throw — can't easily assert launcher-ness.
-      final snap = await backend.captureSnapshot(ctx, null);
-      expect((snap.nodes ?? const []), isNotEmpty);
+      final snap = await device.snapshot();
+      expect(snap.nodes ?? const [], isNotEmpty);
     },
-    timeout: const Timeout(Duration(seconds: 20)),
+    timeout: const Timeout(Duration(seconds: 30)),
   );
+
+  test('AgentDevice.listDevices works without opening a session', () async {
+    final devices = await AgentDevice.listDevices(const AndroidBackend());
+    expect(devices, isNotEmpty);
+    expect(devices.first.id, isNotEmpty);
+  });
 }

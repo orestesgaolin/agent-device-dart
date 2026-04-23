@@ -154,10 +154,16 @@ Pick Android as the first real backend (simplest external dep: just `adb`).
 - **Integration testing**: mirror the TS `android.yml` workflow — `reactivecircus/android-emulator-runner@v2` on ubuntu-latest (pixel_7, api 36, google_apis_playstore), run `.ad` replay scripts (`test/integration/replays/android/*.ad`) through the Dart CLI. Keep local unit tests pure (parsing ADB output strings, no real subprocess) so `dart test` stays fast; integration tests gate on `AGENT_DEVICE_ANDROID_IT=1` for local dev. CI workflow added in the last step of this phase, after there's something real to test.
 
 ### Phase 4 — Runtime + in-process SDK (3 days)
-- Port `core/dispatch.ts`, `core/capabilities.ts`, `core/dispatch-*.ts`, `core/interactors.ts`, `core/batch.ts`, `core/*.ts`.
-- Port `runtime.ts` → `createAgentDevice({ backend, sessionStore, policy, clock, diagnostics })`.
-- Port `core/session-surface.ts` + `daemon/session-store.ts` (memory + disk) → `lib/src/runtime/session_store.dart`.
-- Wire Android backend into a programmatic test: create session → open → snapshot → click → close, no daemon involved.
+
+**Design deviation from TS (decision 2026-04-23):** the TS `bindCommands` pattern generates ~40 methods on the runtime via dynamic TypeScript. It doesn't port cleanly to Dart and the resulting `Map<String, Function>` wouldn't be type-safe for SDK consumers. Instead, build a Dart-idiomatic `AgentDevice` class with typed method signatures wrapping the `Backend`. This is the shape other Dart packages will import. The CLI (Phase 5) and `.ad` replay runner (Phase 10) are the stable user-facing contracts; the programmatic API gets a Dart-native shape.
+
+Scope:
+- Port `runtime-contract.ts` types (`CommandSessionRecord`, `CommandSessionStore`, `CommandPolicy`, etc.) → `lib/src/runtime/contract.dart`.
+- Port memory session store → `lib/src/runtime/session_store.dart`.
+- Port minimal device resolution (pick first matching device via `Backend.listDevices`) → `lib/src/runtime/device_resolver.dart`. Full `resolveTargetDevice` with CLI flags lands in Phase 5; for now, programmatic callers pass a simple filter.
+- New file (Dart-only): `lib/src/runtime/agent_device.dart` — `AgentDevice` class with typed methods (`open`, `snapshot`, `tap`, `fill`, `openApp`, etc.) that build `BackendCommandContext` with `deviceSerial` resolved from session state, dispatch to `backend.<method>`, and update session state on mutation.
+- Defer until needed by Phase 5: `core/dispatch.ts` (906 LOC — this ties together CLI flags, device resolution, batch/series, and replay healing); `core/batch.ts`; `core/interactors.ts` (selector→point resolution — can stay on the Backend side for now via `snapshot+find` rather than a separate interactor registry); `commands/index.ts` catalog metadata.
+- Smoke test: rewrite `android_live_test.dart` to use `AgentDevice` instead of raw `AndroidBackend` calls. Proves the programmatic API works end-to-end on a real device.
 
 ### Phase 5 — CLI (no daemon yet) (3 days)
 - Wire `bin/agent_device.dart` → parse argv → dispatch locally through the in-process runtime (single-shot execution, sessions in-memory for now).

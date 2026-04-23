@@ -114,6 +114,20 @@ export 'src/replay/script_utils.dart'
         formatScriptStringLiteral,
         isClickLikeCommand;
 export 'src/replay/session_action.dart' show SessionAction, SessionRuntimeHints;
+// Runtime façade (programmatic API).
+export 'src/runtime/agent_device.dart' show AgentDevice, DeviceSelector;
+export 'src/runtime/contract.dart'
+    show
+        CommandClock,
+        CommandPolicy,
+        CommandSessionRecord,
+        CommandSessionStore,
+        DiagnosticsSink,
+        SystemClock,
+        localCommandPolicy,
+        restrictedCommandPolicy;
+export 'src/runtime/session_store.dart'
+    show MemorySessionStore, createMemorySessionStore;
 export 'src/selectors/selectors.dart'
     show
         IsPredicateResult,
