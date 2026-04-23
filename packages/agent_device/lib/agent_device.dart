@@ -126,6 +126,8 @@ export 'src/runtime/contract.dart'
         SystemClock,
         localCommandPolicy,
         restrictedCommandPolicy;
+export 'src/runtime/file_session_store.dart' show FileSessionStore;
+export 'src/runtime/paths.dart' show StatePaths, resolveStatePaths;
 export 'src/runtime/session_store.dart'
     show MemorySessionStore, createMemorySessionStore;
 export 'src/selectors/selectors.dart'

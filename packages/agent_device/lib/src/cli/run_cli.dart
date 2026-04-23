@@ -7,6 +7,7 @@ import 'package:args/command_runner.dart';
 
 import 'commands/devices_cmd.dart';
 import 'commands/screenshot_cmd.dart';
+import 'commands/session_cmd.dart';
 import 'commands/simple_action_cmds.dart';
 import 'commands/snapshot_cmd.dart';
 import 'output.dart';
@@ -35,7 +36,18 @@ Future<int> runCli(List<String> argv) async {
       help: 'Verbose output / include full error details.',
       negatable: false,
     )
-    ..addFlag('debug', help: 'Alias for --verbose.', negatable: false);
+    ..addFlag('debug', help: 'Alias for --verbose.', negatable: false)
+    ..addOption(
+      'state-dir',
+      help:
+          'Override the agent-device state directory '
+          '(default: \$AGENT_DEVICE_STATE_DIR or ~/.agent-device/).',
+    )
+    ..addFlag(
+      'ephemeral-session',
+      help: 'Use an in-memory session store for this invocation.',
+      negatable: false,
+    );
 
   runner
     ..addCommand(DevicesCommand())
@@ -55,7 +67,8 @@ Future<int> runCli(List<String> argv) async {
     ..addCommand(LongPressCommand())
     ..addCommand(AppStateCommand())
     ..addCommand(AppsCommand())
-    ..addCommand(ClipboardCommand());
+    ..addCommand(ClipboardCommand())
+    ..addCommand(SessionCommand());
 
   // Decide JSON mode for top-level error reporting by peeking at argv —
   // the CommandRunner hasn't parsed yet when an exception escapes.

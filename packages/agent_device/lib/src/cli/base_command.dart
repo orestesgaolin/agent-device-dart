@@ -6,6 +6,9 @@ import 'package:agent_device/src/platforms/android/android_backend.dart';
 import 'package:agent_device/src/platforms/platform_selector.dart';
 import 'package:agent_device/src/runtime/agent_device.dart';
 import 'package:agent_device/src/runtime/contract.dart';
+import 'package:agent_device/src/runtime/file_session_store.dart';
+import 'package:agent_device/src/runtime/paths.dart';
+import 'package:agent_device/src/runtime/session_store.dart';
 import 'package:agent_device/src/utils/errors.dart';
 import 'package:args/command_runner.dart';
 
@@ -31,6 +34,19 @@ abstract class AgentDeviceCommand extends Command<int> {
       )
       ..addOption('serial', help: 'Explicit device serial / udid to target.')
       ..addOption('device', help: 'Device name to target.')
+      ..addOption(
+        'state-dir',
+        help:
+            'Override the agent-device state directory '
+            '(default: \$AGENT_DEVICE_STATE_DIR or ~/.agent-device/).',
+      )
+      ..addFlag(
+        'ephemeral-session',
+        help:
+            'Use an in-memory session store for this invocation (do not '
+            'touch ~/.agent-device/sessions/).',
+        negatable: false,
+      )
       ..addFlag(
         'json',
         help: 'Emit machine-readable JSON output.',
@@ -87,14 +103,62 @@ abstract class AgentDeviceCommand extends Command<int> {
     );
   }
 
+  /// The [CommandSessionStore] this CLI invocation should use. Defaults to
+  /// a [FileSessionStore] rooted at `<state-dir>/sessions/` so subsequent
+  /// CLI invocations share session state. `--ephemeral-session` falls back
+  /// to an in-memory store for one-shot commands. Both flags are honored
+  /// whether passed at the root (`agent-device --state-dir X cmd`) or on
+  /// the subcommand (`agent-device cmd --state-dir X`).
+  CommandSessionStore resolveSessionStore() {
+    if (_boolFlag('ephemeral-session')) return createMemorySessionStore();
+    final paths = resolveStatePaths(_stringOption('state-dir'));
+    return FileSessionStore(paths.sessionsDir);
+  }
+
+  /// Same lookup logic as [_boolFlag] but for string-valued options.
+  String? _stringOption(String name) {
+    final results = argResults;
+    if (results != null && results.options.contains(name)) {
+      final v = results[name];
+      if (v is String && v.isNotEmpty) return v;
+    }
+    final global = globalResults;
+    if (global != null && global.options.contains(name)) {
+      final v = global[name];
+      if (v is String && v.isNotEmpty) return v;
+    }
+    return null;
+  }
+
   /// Open an [AgentDevice] bound to the session and selector from the
-  /// command-line flags. Callers are responsible for `await device.close()`.
+  /// command-line flags. Callers are responsible for `await device.close()`
+  /// only when they want the session deleted — for persistent sessions
+  /// (the default), leave `close()` unpinned so subsequent CLI runs can
+  /// reuse the record.
   Future<AgentDevice> openAgentDevice({CommandSessionStore? sessions}) async {
+    final store = sessions ?? resolveSessionStore();
+    // Prefer a device serial already stored for this session if the user
+    // hasn't narrowed down via --serial / --device. This is what lets
+    // `agent-device open` in shell A and `agent-device snapshot` in shell
+    // B land on the same device.
+    final base = selectorFromFlags;
+    DeviceSelector selector = base;
+    if (base.serial == null && base.name == null) {
+      final existing = await store.get(sessionName);
+      final remembered = existing?.deviceSerial;
+      if (remembered != null && remembered.isNotEmpty) {
+        selector = DeviceSelector(
+          platform: base.platform,
+          serial: remembered,
+          name: null,
+        );
+      }
+    }
     return AgentDevice.open(
       backend: resolveBackend(),
-      selector: selectorFromFlags,
+      selector: selector,
       sessionName: sessionName,
-      sessions: sessions,
+      sessions: store,
     );
   }
 

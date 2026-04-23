@@ -121,7 +121,40 @@ class CommandSessionRecord {
     if (backendSessionId != null) 'backendSessionId': backendSessionId,
     if (deviceSerial != null) 'deviceSerial': deviceSerial,
     if (metadata != null) 'metadata': metadata,
+    // Note: [snapshot] is NOT persisted — it contains live [SnapshotState]
+    // with file-path references that are only meaningful within one CLI
+    // invocation. Callers should re-capture via `snapshot` after reloading
+    // a session from disk.
   };
+
+  /// Deserialise from the shape produced by [toJson]. The `snapshot` field
+  /// is never re-hydrated (see [toJson] note); callers re-capture it.
+  factory CommandSessionRecord.fromJson(Map<String, Object?> json) {
+    final name = json['name'];
+    if (name is! String || name.isEmpty) {
+      throw const FormatException(
+        'CommandSessionRecord.fromJson: missing name',
+      );
+    }
+    Map<String, Object?>? readMetadata(Object? raw) {
+      if (raw is Map) {
+        return <String, Object?>{
+          for (final e in raw.entries) e.key.toString(): e.value,
+        };
+      }
+      return null;
+    }
+
+    return CommandSessionRecord(
+      name: name,
+      appId: json['appId'] as String?,
+      appBundleId: json['appBundleId'] as String?,
+      appName: json['appName'] as String?,
+      backendSessionId: json['backendSessionId'] as String?,
+      deviceSerial: json['deviceSerial'] as String?,
+      metadata: readMetadata(json['metadata']),
+    );
+  }
 }
 
 /// Storage backend for [CommandSessionRecord]s keyed by session name.

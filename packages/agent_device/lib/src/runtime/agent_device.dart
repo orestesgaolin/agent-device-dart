@@ -107,9 +107,15 @@ class AgentDevice {
       );
     }
     final picked = filtered.first;
-    await store.set(
-      CommandSessionRecord(name: sessionName, deviceSerial: picked.id),
-    );
+    // Preserve any existing session fields (appId, metadata, etc.) — we
+    // only want to refresh the deviceSerial. Matters for cross-invocation
+    // session sharing: without this merge, every CLI invocation would
+    // reset the record to `{name, deviceSerial}` and lose the previously
+    // opened app id.
+    final existing = await store.get(sessionName);
+    final merged = (existing ?? CommandSessionRecord(name: sessionName))
+        .copyWith(deviceSerial: picked.id);
+    await store.set(merged);
     return AgentDevice._(
       backend: backend,
       sessions: store,
