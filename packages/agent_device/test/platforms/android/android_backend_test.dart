@@ -46,16 +46,47 @@ void main() {
     test(
       'unsupported methods throw AppError with unsupportedOperation code',
       () async {
-        final backend = const AndroidBackend();
-        final ctx = const BackendCommandContext();
+        const backend = AndroidBackend();
+        const ctx = BackendCommandContext(deviceSerial: 'emulator-5554');
 
-        // Test a few unsupported methods to verify they throw.
-        expect(() => backend.pressKey(ctx, 'Return'), throwsA(isA<AppError>()));
-
-        expect(() => backend.pressHome(ctx), throwsA(isA<AppError>()));
-
-        expect(() => backend.listApps(ctx), throwsA(isA<AppError>()));
+        // pressKey is genuinely not wired (no Android equivalent in TS source).
+        await expectLater(
+          backend.pressKey(ctx, 'Return'),
+          throwsA(
+            isA<AppError>().having(
+              (e) => e.code,
+              'code',
+              AppErrorCodes.unsupportedOperation,
+            ),
+          ),
+        );
+        // readText / pinch — also genuinely unsupported on Android.
+        await expectLater(
+          backend.readText(ctx, 'ignored'),
+          throwsA(isA<AppError>()),
+        );
+        await expectLater(
+          backend.pinch(ctx, const BackendPinchOptions(scale: 2.0)),
+          throwsA(isA<AppError>()),
+        );
       },
     );
+
+    test('missing deviceSerial surfaces a clear error', () async {
+      const backend = AndroidBackend();
+      const ctx = BackendCommandContext(); // no deviceSerial
+      await expectLater(
+        backend.pressHome(ctx),
+        throwsA(
+          isA<AppError>()
+              .having((e) => e.code, 'code', AppErrorCodes.unsupportedOperation)
+              .having(
+                (e) => e.message,
+                'message',
+                contains('ctx.deviceSerial'),
+              ),
+        ),
+      );
+    });
   });
 }

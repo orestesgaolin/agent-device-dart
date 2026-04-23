@@ -2,12 +2,14 @@
 
 import 'package:agent_device/src/backend/backend.dart';
 import 'package:agent_device/src/core/device_rotation.dart';
+import 'package:agent_device/src/core/scroll_gesture.dart';
 import 'package:agent_device/src/snapshot/snapshot.dart';
 
 import 'app_lifecycle.dart';
 import 'device_input_state.dart';
 import 'devices.dart';
 import 'input_actions.dart';
+import 'notifications.dart';
 import 'screenshot.dart';
 import 'snapshot.dart';
 
@@ -163,6 +165,21 @@ class AndroidBackend extends Backend {
     return null;
   }
 
+  @override
+  Future<BackendActionResult> scroll(
+    BackendCommandContext ctx,
+    BackendScrollTarget target,
+    BackendScrollOptions options,
+  ) async {
+    final direction = parseScrollDirection(options.direction);
+    return scrollAndroid(
+      _serial(ctx),
+      direction,
+      amount: options.amount?.toDouble(),
+      pixels: options.pixels?.toDouble(),
+    );
+  }
+
   // =========================================================================
   // Navigation
   // =========================================================================
@@ -195,6 +212,36 @@ class AndroidBackend extends Backend {
   Future<BackendActionResult> openAppSwitcher(BackendCommandContext ctx) async {
     await appSwitcherAndroid(_serial(ctx));
     return null;
+  }
+
+  @override
+  Future<Object?> setKeyboard(
+    BackendCommandContext ctx,
+    BackendKeyboardOptions options,
+  ) async {
+    final serial = _serial(ctx);
+    switch (options.action) {
+      case 'dismiss':
+      case 'hide':
+        final r = await dismissAndroidKeyboard(serial);
+        return <String, Object?>{
+          'dismissed': r.dismissed,
+          'visible': r.visible,
+          'wasVisible': r.wasVisible,
+          'attempts': r.attempts,
+          if (r.inputType != null) 'inputType': r.inputType,
+          if (r.type != null) 'type': r.type!.name,
+        };
+      case 'status':
+      case 'get':
+        final s = await getAndroidKeyboardState(serial);
+        return <String, Object?>{
+          'visible': s.visible,
+          if (s.inputType != null) 'inputType': s.inputType,
+          if (s.type != null) 'type': s.type!.name,
+        };
+    }
+    unsupported("setKeyboard action '${options.action}'");
   }
 
   // =========================================================================
@@ -260,6 +307,53 @@ class AndroidBackend extends Backend {
     );
   }
 
+  @override
+  Future<List<BackendAppInfo>> listApps(
+    BackendCommandContext ctx, [
+    BackendAppListFilter? filter,
+  ]) async {
+    final raw = await listAndroidApps(
+      _serial(ctx),
+      filter: filter == BackendAppListFilter.userInstalled ? 'user' : 'all',
+    );
+    return raw
+        .map(
+          (e) => BackendAppInfo(
+            id: e.package,
+            name: e.name,
+            packageName: e.package,
+          ),
+        )
+        .toList();
+  }
+
+  @override
+  Future<BackendActionResult> triggerAppEvent(
+    BackendCommandContext ctx,
+    BackendAppEvent event,
+  ) async {
+    if (event.name != 'notification') {
+      unsupported("triggerAppEvent '${event.name}'");
+    }
+    final payload = event.payload ?? const <String, Object?>{};
+    final packageName = (payload['package'] as String?) ?? ctx.appId ?? '';
+    if (packageName.isEmpty) {
+      unsupported(
+        'triggerAppEvent notification requires payload.package or ctx.appId',
+      );
+    }
+    final res = await pushAndroidNotification(
+      _serial(ctx),
+      packageName,
+      AndroidBroadcastPayload(
+        action: payload['action'] as String?,
+        receiver: payload['receiver'] as String?,
+        extras: payload['extras'] as Map<String, Object?>?,
+      ),
+    );
+    return {'action': res.action, 'extrasCount': res.extrasCount};
+  }
+
   // =========================================================================
   // Device Management
   // =========================================================================
@@ -269,6 +363,54 @@ class AndroidBackend extends Backend {
     BackendCommandContext ctx, [
     BackendDeviceFilter? filter,
   ]) => listAndroidDevices();
+
+  @override
+  Future<BackendActionResult> bootDevice(
+    BackendCommandContext ctx, [
+    BackendDeviceTarget? target,
+  ]) async {
+    await openAndroidDevice(_serial(ctx));
+    return null;
+  }
+
+  @override
+  Future<BackendInstallResult> installApp(
+    BackendCommandContext ctx,
+    BackendInstallTarget target,
+  ) async {
+    final source = target.source;
+    final path = source is BackendInstallSourcePath ? source.path : null;
+    if (path == null || path.isEmpty) {
+      unsupported('installApp requires a BackendInstallSourcePath on Android');
+    }
+    final packageName =
+        await installAndroidInstallablePathAndResolvePackageName(
+          _serial(ctx),
+          path,
+          packageNameHint: target.app,
+        );
+    return BackendInstallResult(appId: packageName, packageName: packageName);
+  }
+
+  @override
+  Future<BackendInstallResult> reinstallApp(
+    BackendCommandContext ctx,
+    BackendInstallTarget target,
+  ) async {
+    final source = target.source;
+    final path = source is BackendInstallSourcePath ? source.path : null;
+    if (path == null || path.isEmpty) {
+      unsupported(
+        'reinstallApp requires a BackendInstallSourcePath on Android',
+      );
+    }
+    final app = target.app;
+    if (app == null || app.isEmpty) {
+      unsupported('reinstallApp requires target.app (package name) on Android');
+    }
+    final res = await reinstallAndroidApp(_serial(ctx), app, path);
+    return BackendInstallResult(appId: res.package, packageName: res.package);
+  }
 }
 
 DeviceRotation _toDeviceRotation(BackendDeviceOrientation o) => switch (o) {

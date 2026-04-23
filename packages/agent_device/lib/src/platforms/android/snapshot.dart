@@ -215,7 +215,7 @@ String? _extractUiDumpXml(String stdout, String stderr) {
 }
 
 /// Check if an error is retryable (transient ADB issue).
-bool _isRetryableAdbError(dynamic err) {
+bool _isRetryableAdbError(Object err) {
   if (err is! AppError) return false;
   if (err.code != AppErrorCodes.commandFailed) return false;
 
@@ -232,7 +232,7 @@ bool _isRetryableAdbError(dynamic err) {
 }
 
 /// Check if an error is a UI hierarchy dump timeout.
-bool _isUiHierarchyDumpTimeout(dynamic err) {
+bool _isUiHierarchyDumpTimeout(Object err) {
   if (err is! AppError) return false;
   if (err.code != AppErrorCodes.commandFailed) return false;
 

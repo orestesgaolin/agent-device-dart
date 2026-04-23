@@ -598,7 +598,7 @@ int? _normalizeTimeoutMs(int? value) {
   return value;
 }
 
-String _decodeOutput(dynamic output) {
+String _decodeOutput(Object? output) {
   if (output is String) return output;
   if (output is List<int>) {
     return utf8.decode(output, allowMalformed: true);

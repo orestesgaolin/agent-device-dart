@@ -15,7 +15,9 @@
       "Bash(dart fix *)",
       "Bash(grep *)",
       "Bash(sed *)",
-      "Bash(echo \"exit: $?\")"
+      "Bash(echo \"exit: $?\")",
+      "Bash(xargs -I{} basename {} .ts)",
+      "Bash(xargs -I{} basename {} .dart)"
     ]
   }
 }
