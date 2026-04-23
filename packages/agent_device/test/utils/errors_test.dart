@@ -51,7 +51,11 @@ void main() {
 
     test('propagates context diagnosticId/logPath', () {
       final err = AppError(AppErrorCodes.commandFailed, 'boom');
-      final norm = normalizeError(err, diagnosticId: 'diag-1', logPath: '/tmp/x');
+      final norm = normalizeError(
+        err,
+        diagnosticId: 'diag-1',
+        logPath: '/tmp/x',
+      );
       expect(norm.diagnosticId, 'diag-1');
       expect(norm.logPath, '/tmp/x');
     });
@@ -82,7 +86,8 @@ void main() {
         'Command failed',
         details: {
           'processExitError': true,
-          'stderr': 'An error was encountered processing the command\nreal reason here\ntail',
+          'stderr':
+              'An error was encountered processing the command\nreal reason here\ntail',
         },
       );
       final norm = normalizeError(err);

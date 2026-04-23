@@ -30,7 +30,10 @@ class AppErrorCodes {
 
 /// Accepts any string so daemon-provided codes pass through. Use
 /// [AppErrorCodes] constants for the known set.
-String toAppErrorCode(String? code, {String fallback = AppErrorCodes.commandFailed}) {
+String toAppErrorCode(
+  String? code, {
+  String fallback = AppErrorCodes.commandFailed,
+}) {
   if (code != null && code.isNotEmpty) return code;
   return fallback;
 }
@@ -89,7 +92,11 @@ AppError asAppError(Object? err) {
   if (err is Exception) {
     return AppError(AppErrorCodes.unknown, err.toString(), cause: err);
   }
-  return AppError(AppErrorCodes.unknown, 'Unknown error', details: {'err': err});
+  return AppError(
+    AppErrorCodes.unknown,
+    'Unknown error',
+    details: {'err': err},
+  );
 }
 
 /// True if [err] is an [AppError].
@@ -120,12 +127,21 @@ NormalizedError normalizeError(
   final detailDiagnosticId = redacted?['diagnosticId'];
   final detailLogPath = redacted?['logPath'];
 
-  final resolvedDiagnosticId = (detailDiagnosticId is String ? detailDiagnosticId : null) ?? diagnosticId;
-  final resolvedLogPath = (detailLogPath is String ? detailLogPath : null) ?? logPath;
-  final resolvedHint = (detailHint is String ? detailHint : null) ?? defaultHintForCode(appErr.code);
+  final resolvedDiagnosticId =
+      (detailDiagnosticId is String ? detailDiagnosticId : null) ??
+      diagnosticId;
+  final resolvedLogPath =
+      (detailLogPath is String ? detailLogPath : null) ?? logPath;
+  final resolvedHint =
+      (detailHint is String ? detailHint : null) ??
+      defaultHintForCode(appErr.code);
 
   final cleanDetails = _stripDiagnosticMeta(redacted);
-  final message = _maybeEnrichCommandFailedMessage(appErr.code, appErr.message, redacted);
+  final message = _maybeEnrichCommandFailedMessage(
+    appErr.code,
+    appErr.message,
+    redacted,
+  );
 
   return NormalizedError(
     code: appErr.code,
@@ -153,9 +169,15 @@ String _maybeEnrichCommandFailedMessage(
 }
 
 final List<RegExp> _stderrSkipPatterns = <RegExp>[
-  RegExp(r'^an error was encountered processing the command', caseSensitive: false),
+  RegExp(
+    r'^an error was encountered processing the command',
+    caseSensitive: false,
+  ),
   RegExp(r'^underlying error\b', caseSensitive: false),
-  RegExp(r'^simulator device failed to complete the requested operation', caseSensitive: false),
+  RegExp(
+    r'^simulator device failed to complete the requested operation',
+    caseSensitive: false,
+  ),
 ];
 
 String? _firstStderrLine(String stderr) {

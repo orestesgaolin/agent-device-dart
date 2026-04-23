@@ -5,6 +5,15 @@
 /// modules are ported (see PORTING_PLAN.md).
 library;
 
+export 'src/snapshot/snapshot.dart'
+    show
+        Point,
+        Rect,
+        ScreenshotOverlayRef,
+        SnapshotNode,
+        SnapshotVisibility,
+        SnapshotVisibilityReason,
+        centerOfRect;
 export 'src/utils/errors.dart'
     show
         AppError,

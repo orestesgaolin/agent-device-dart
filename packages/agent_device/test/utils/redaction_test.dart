@@ -20,7 +20,8 @@ void main() {
   });
 
   test('masks URL credentials and query when no sensitive value matches', () {
-    final out = redactDiagnosticData('https://user:pw@example.com/x?foo=bar') as String;
+    final out =
+        redactDiagnosticData('https://user:pw@example.com/x?foo=bar') as String;
     expect(out, contains('REDACTED:REDACTED@example.com'));
     expect(out, contains('REDACTED'));
     expect(out, isNot(contains('foo=bar')));
@@ -29,7 +30,8 @@ void main() {
 
   test('sensitive value pattern wins over URL masking', () {
     // `token=123` triggers the value regex, collapsing the whole string.
-    final out = redactDiagnosticData('https://u:p@example.com/x?token=123') as String;
+    final out =
+        redactDiagnosticData('https://u:p@example.com/x?token=123') as String;
     expect(out, '[REDACTED]');
   });
 

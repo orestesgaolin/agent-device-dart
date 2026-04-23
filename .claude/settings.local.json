@@ -10,7 +10,9 @@
       "Bash(dart run *)",
       "Bash(git init *)",
       "Bash(git add *)",
-      "Bash(git -c user.email=dominik@makevisible.com -c user.name=dominik commit -q -m \"chore: phase 0 scaffold + errors/redaction port\")"
+      "Bash(git -c user.email=dominik@makevisible.com -c user.name=dominik commit -q -m \"chore: phase 0 scaffold + errors/redaction port\")",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(dart fix *)"
     ]
   }
 }
