@@ -1,2 +1,3 @@
 - [Phase 3 Android Wave A](phase3_android_wave_a.md) — 6 source files, 72 tests, complete port with no errors
 - [Phase 3 Android Wave B](phase3_android_wave_b.md) — 5 source + 4 test files, 42 tests, snapshot + screenshot + UI parsing + scroll hints
+- [Phase 3 Android Wave C1](phase3_android_wave_c1.md) — 10 source + 7 test files, 62 new tests, permissions/appearance/gestures/input state
