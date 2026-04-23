@@ -7,6 +7,7 @@ library;
 import 'dart:io';
 
 import 'package:agent_device/src/replay/replay_runtime.dart';
+import 'package:agent_device/src/replay/script.dart' as script;
 import 'package:agent_device/src/utils/errors.dart';
 import 'package:path/path.dart' as p;
 
@@ -112,7 +113,8 @@ class TestCommand extends AgentDeviceCommand {
         'test requires at least one script path or glob.',
       );
     }
-    final retries = int.tryParse(argResults?['retries'] as String? ?? '0') ?? 0;
+    final cliRetries =
+        int.tryParse(argResults?['retries'] as String? ?? '0') ?? 0;
     final rootDir = argResults?['artifact-dir'] as String?;
 
     final scripts = await _resolveScripts(positionals);
@@ -127,16 +129,20 @@ class TestCommand extends AgentDeviceCommand {
     int passed = 0;
     int failed = 0;
 
-    for (final script in scripts) {
-      if (!asJson) stdout.writeln('› ${p.basename(script)}');
+    for (final scriptPath in scripts) {
+      if (!asJson) stdout.writeln('› ${p.basename(scriptPath)}');
+      // Per-script context header can override retries (TS parity).
+      final text = await File(scriptPath).readAsString();
+      final meta = script.readReplayScriptMetadata(text);
+      final retries = meta.retries ?? cliRetries;
       final device = await openAgentDevice();
       Object? finalResult;
       bool ok = false;
       for (int attempt = 0; attempt <= retries; attempt++) {
-        final artifactDir = _artifactDirFor(rootDir, script, attempt);
+        final artifactDir = _artifactDirFor(rootDir, scriptPath, attempt);
         try {
           final res = await runReplayScript(
-            scriptPath: script,
+            scriptPath: scriptPath,
             device: device,
             artifactDir: artifactDir,
             onStep: (step) {
@@ -154,7 +160,7 @@ class TestCommand extends AgentDeviceCommand {
           if (ok) break;
         } catch (e) {
           finalResult = {
-            'scriptPath': script,
+            'scriptPath': scriptPath,
             'attempts': attempt + 1,
             'ok': false,
             'errorMessage': e.toString(),

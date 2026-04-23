@@ -19,8 +19,13 @@ import 'package:agent_device/src/runtime/interaction_target.dart';
 import 'package:agent_device/src/utils/errors.dart';
 import 'package:path/path.dart' as p;
 
-import 'script.dart';
+import 'script.dart' show parseReplayScript, readReplayScriptMetadata;
+import 'script.dart' as script show ReplayScriptMetadata;
 import 'session_action.dart';
+
+/// Re-exposed for callers that want to inspect script-level metadata
+/// alongside the run result.
+typedef ReplayScriptMetadata = script.ReplayScriptMetadata;
 
 /// One executed step.
 class ReplayStepResult {
@@ -60,12 +65,14 @@ class ReplayRunResult {
   final List<ReplayStepResult> steps;
   final bool ok;
   final int durationMs;
+  final ReplayScriptMetadata? metadata;
 
   const ReplayRunResult({
     required this.scriptPath,
     required this.steps,
     required this.ok,
     required this.durationMs,
+    this.metadata,
   });
 
   int get passed => steps.where((s) => s.ok).length;
@@ -77,6 +84,7 @@ class ReplayRunResult {
     'durationMs': durationMs,
     'passed': passed,
     'failed': failed,
+    if (metadata != null) 'metadata': metadata!.toJson(),
     'steps': steps.map((s) => s.toJson()).toList(),
   };
 }
@@ -102,6 +110,7 @@ Future<ReplayRunResult> runReplayScript({
     );
   }
 
+  final metadata = readReplayScriptMetadata(text);
   final actions = parseReplayScript(text);
   final steps = <ReplayStepResult>[];
   var ok = true;
@@ -156,6 +165,7 @@ Future<ReplayRunResult> runReplayScript({
     steps: steps,
     ok: ok,
     durationMs: sw.elapsedMilliseconds,
+    metadata: metadata,
   );
 }
 

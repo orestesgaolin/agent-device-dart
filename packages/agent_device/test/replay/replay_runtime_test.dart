@@ -106,6 +106,24 @@ void main() {
       expect(result.steps.first.errorCode, 'UNSUPPORTED_OPERATION');
     });
 
+    test('surfaces context-header metadata on the result', () async {
+      final backend = _RecordingBackend();
+      final device = await openDevice(backend);
+      final script = File('${tmp.path}/ctx.ad');
+      await script.writeAsString(
+        'context platform=ios timeout=5000 retries=2\nhome\n',
+      );
+      final result = await runReplayScript(
+        scriptPath: script.path,
+        device: device,
+      );
+      expect(result.ok, isTrue);
+      expect(result.metadata, isNotNull);
+      expect(result.metadata!.platform, 'ios');
+      expect(result.metadata!.timeoutMs, 5000);
+      expect(result.metadata!.retries, 2);
+    });
+
     test('rejects JSON payloads', () async {
       final backend = _RecordingBackend();
       final device = await openDevice(backend);
