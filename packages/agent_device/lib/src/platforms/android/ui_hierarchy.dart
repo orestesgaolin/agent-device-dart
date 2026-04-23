@@ -283,6 +283,7 @@ Rect? parseBounds(String? bounds) {
 AndroidUiHierarchy parseUiHierarchyTree(String xml) {
   // Not const: `children` is mutated as we parse, so a const empty list
   // would throw at runtime on the first `add`.
+  // ignore: prefer_const_constructors
   final root = AndroidUiHierarchy(
     type: null,
     label: null,
