@@ -246,6 +246,28 @@ Future<List<String>> _dispatch({
       );
       return const [];
 
+    case 'scroll':
+      if (positionals.isEmpty) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "scroll" requires a direction (up|down|left|right)',
+        );
+      }
+      const validDirs = {'up', 'down', 'left', 'right'};
+      final dir = positionals.first;
+      if (!validDirs.contains(dir)) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'Unknown scroll direction "$dir".',
+        );
+      }
+      await device.scroll(
+        dir,
+        amount: (flags['amount'] as num?)?.toInt(),
+        pixels: (flags['pixels'] as num?)?.toInt(),
+      );
+      return const [];
+
     case 'longpress':
       if (positionals.length < 2) {
         throw AppError(

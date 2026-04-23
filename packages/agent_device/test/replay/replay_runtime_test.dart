@@ -53,6 +53,24 @@ void main() {
       ]);
     });
 
+    test('scroll dispatches direction + amount', () async {
+      final backend = _RecordingBackend();
+      final device = await openDevice(backend);
+      final script = File('${tmp.path}/scroll.ad');
+      await script.writeAsString('scroll down\n');
+      final result = await runReplayScript(
+        scriptPath: script.path,
+        device: device,
+      );
+      expect(result.ok, isTrue);
+      expect(backend.calls.first.name, 'scroll');
+      expect(
+        (backend.calls.first.args['options'] as BackendScrollOptions?)
+            ?.direction,
+        'down',
+      );
+    });
+
     test('swipe parses four coords', () async {
       final backend = _RecordingBackend();
       final device = await openDevice(backend);
@@ -213,6 +231,16 @@ class _RecordingBackend extends Backend {
     Map<String, Object?>? options,
   ]) async {
     _record('typeText', {'text': text});
+    return null;
+  }
+
+  @override
+  Future<BackendActionResult> scroll(
+    BackendCommandContext ctx,
+    BackendScrollTarget target,
+    BackendScrollOptions options,
+  ) async {
+    _record('scroll', {'target': target, 'options': options});
     return null;
   }
 
