@@ -5,6 +5,91 @@
 /// modules are ported (see PORTING_PLAN.md).
 library;
 
+// Backend interface and types
+export 'src/backend/backend.dart'
+    show
+        Backend,
+        BackendActionResult,
+        BackendCommandContext,
+        BackendEscapeHatches,
+        hasBackendCapability,
+        hasBackendEscapeHatch;
+export 'src/backend/capabilities.dart'
+    show BackendCapabilityName, BackendCapabilitySet;
+export 'src/backend/device_info.dart'
+    show
+        BackendAppEvent,
+        BackendAppInfo,
+        BackendAppListFilter,
+        BackendAppState,
+        BackendDeviceFilter,
+        BackendDeviceInfo,
+        BackendDeviceOrientation,
+        BackendDeviceTarget;
+export 'src/backend/diagnostics.dart'
+    show
+        BackendDiagnosticsTimeWindow,
+        BackendDumpNetworkOptions,
+        BackendDumpNetworkResult,
+        BackendLogEntry,
+        BackendMeasurePerfOptions,
+        BackendMeasurePerfResult,
+        BackendNetworkEntry,
+        BackendNetworkIncludeMode,
+        BackendPerfMetric,
+        BackendReadLogsOptions,
+        BackendReadLogsResult;
+export 'src/backend/install_source.dart'
+    show
+        BackendEnsureSimulatorOptions,
+        BackendEnsureSimulatorResult,
+        BackendInstallResult,
+        BackendInstallTarget;
+export 'src/backend/options.dart'
+    show
+        BackendAlertAction,
+        BackendAlertHandledResult,
+        BackendAlertInfo,
+        BackendAlertResult,
+        BackendAlertStatusResult,
+        BackendAlertWaitResult,
+        BackendBackOptions,
+        BackendClipboardTextResult,
+        BackendFillOptions,
+        BackendFindTextResult,
+        BackendInstallSource,
+        BackendInstallSourcePath,
+        BackendInstallSourceUploadedArtifact,
+        BackendInstallSourceUrl,
+        BackendKeyboardOptions,
+        BackendKeyboardResult,
+        BackendLongPressOptions,
+        BackendOpenOptions,
+        BackendOpenTarget,
+        BackendPinchOptions,
+        BackendPushInput,
+        BackendPushInputFile,
+        BackendPushInputJson,
+        BackendReadTextResult,
+        BackendRecordingOptions,
+        BackendRecordingResult,
+        BackendRunnerCommand,
+        BackendScreenshotOptions,
+        BackendScreenshotResult,
+        BackendScrollOptions,
+        BackendScrollTarget,
+        BackendScrollTargetPoint,
+        BackendScrollTargetViewport,
+        BackendShellResult,
+        BackendSnapshotAnalysis,
+        BackendSnapshotFreshness,
+        BackendSnapshotOptions,
+        BackendSnapshotResult,
+        BackendSwipeOptions,
+        BackendTapOptions,
+        BackendTraceOptions,
+        BackendTraceResult;
+export 'src/backend/platform.dart' show AgentDeviceBackendPlatform;
 export 'src/platforms/platform_selector.dart'
     show
         PlatformSelector,
