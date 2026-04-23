@@ -157,6 +157,7 @@ export 'src/snapshot/snapshot.dart'
         Rect,
         ScreenshotOverlayRef,
         SnapshotNode,
+        SnapshotState,
         SnapshotVisibility,
         SnapshotVisibilityReason,
         centerOfRect;

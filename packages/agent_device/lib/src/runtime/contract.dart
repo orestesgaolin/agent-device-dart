@@ -27,20 +27,22 @@ class CommandPolicy {
 }
 
 /// Default policy for in-process programmatic use: allow local I/O, no
-/// backend escape-hatch capabilities unless the consumer opts in.
+/// backend escape-hatch capabilities unless the consumer opts in. Mirrors
+/// the TS `localCommandPolicy()` values.
 const CommandPolicy localCommandPolicy = CommandPolicy(
   allowLocalInputPaths: true,
   allowLocalOutputPaths: true,
-  maxImagePixels: 50_000_000,
+  maxImagePixels: 20_000_000,
   allowNamedBackendCapabilities: [],
 );
 
 /// Restricted policy for untrusted callers (remote daemon, CLI with
-/// `--session-isolation`): no local path access, no escape-hatches.
+/// `--session-isolation`): no local path access, no escape-hatches. Mirrors
+/// the TS `restrictedCommandPolicy()` values.
 const CommandPolicy restrictedCommandPolicy = CommandPolicy(
   allowLocalInputPaths: false,
   allowLocalOutputPaths: false,
-  maxImagePixels: 25_000_000,
+  maxImagePixels: 20_000_000,
   allowNamedBackendCapabilities: [],
 );
 
@@ -71,7 +73,12 @@ class CommandSessionRecord {
     this.metadata,
   });
 
-  /// Returns a copy with any subset of fields replaced.
+  /// Returns a copy with any subset of fields replaced. To clear a nullable
+  /// field to `null`, include its name in [clearFields] (passing `null` as
+  /// the value is indistinguishable from "not specified" in Dart's optional
+  /// named-parameter semantics — verifier finding from 2026-04-23).
+  ///
+  /// Example: `record.copyWith(clearFields: {'appId', 'appBundleId'})`.
   CommandSessionRecord copyWith({
     String? appId,
     String? appBundleId,
@@ -80,16 +87,29 @@ class CommandSessionRecord {
     SnapshotState? snapshot,
     String? deviceSerial,
     Map<String, Object?>? metadata,
+    Set<String> clearFields = const {},
   }) {
     return CommandSessionRecord(
       name: name,
-      appId: appId ?? this.appId,
-      appBundleId: appBundleId ?? this.appBundleId,
-      appName: appName ?? this.appName,
-      backendSessionId: backendSessionId ?? this.backendSessionId,
-      snapshot: snapshot ?? this.snapshot,
-      deviceSerial: deviceSerial ?? this.deviceSerial,
-      metadata: metadata ?? this.metadata,
+      appId: clearFields.contains('appId') ? null : (appId ?? this.appId),
+      appBundleId: clearFields.contains('appBundleId')
+          ? null
+          : (appBundleId ?? this.appBundleId),
+      appName: clearFields.contains('appName')
+          ? null
+          : (appName ?? this.appName),
+      backendSessionId: clearFields.contains('backendSessionId')
+          ? null
+          : (backendSessionId ?? this.backendSessionId),
+      snapshot: clearFields.contains('snapshot')
+          ? null
+          : (snapshot ?? this.snapshot),
+      deviceSerial: clearFields.contains('deviceSerial')
+          ? null
+          : (deviceSerial ?? this.deviceSerial),
+      metadata: clearFields.contains('metadata')
+          ? null
+          : (metadata ?? this.metadata),
     );
   }
 

@@ -181,8 +181,23 @@ void main() {
       await device.openApp('com.android.settings');
       await device.closeApp();
       expect(backend.callLog, contains('closeApp(com.android.settings)'));
-      // After close, session appId is cleared... actually copyWith keeps
-      // existing value for nulls, so we only assert the call shape.
+    });
+
+    test('closeApp clears appId from session after success', () async {
+      final backend = _FakeBackend(devicesToReturn: [info]);
+      final device = await AgentDevice.open(backend: backend);
+      await device.openApp('com.android.settings');
+      expect(
+        (await device.sessions.get('default'))?.appId,
+        'com.android.settings',
+      );
+      await device.closeApp();
+      expect((await device.sessions.get('default'))?.appId, isNull);
+      // deviceSerial is preserved.
+      expect(
+        (await device.sessions.get('default'))?.deviceSerial,
+        'emulator-5554',
+      );
     });
 
     test('close() deletes session record', () async {

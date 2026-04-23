@@ -19,7 +19,9 @@
       "Bash(xargs -I{} basename {} .ts)",
       "Bash(xargs -I{} basename {} .dart)",
       "Bash(adb devices *)",
-      "Bash(adb *)"
+      "Bash(adb *)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(git -C /Users/dominik/Projects/tmp/agent-device-dart diff 0df6bbc^..0df6bbc -- packages/agent_device/lib/agent_device.dart)"
     ]
   }
 }

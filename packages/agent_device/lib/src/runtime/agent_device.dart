@@ -134,12 +134,15 @@ class AgentDevice {
   }
 
   /// Persist a session-state mutation. Merges onto the existing record
-  /// with [CommandSessionRecord.copyWith] semantics.
+  /// with [CommandSessionRecord.copyWith] semantics. Pass field names in
+  /// [clear] to reset them to `null` (Dart optional-named-parameters can't
+  /// distinguish "null" from "not specified", so a sentinel set is needed).
   Future<void> _updateSession({
     String? appId,
     String? appBundleId,
     String? appName,
     SnapshotState? snapshot,
+    Set<String> clear = const {},
   }) async {
     final current =
         await sessions.get(sessionName) ??
@@ -150,6 +153,7 @@ class AgentDevice {
         appBundleId: appBundleId,
         appName: appName,
         snapshot: snapshot,
+        clearFields: clear,
       ),
     );
   }
@@ -247,6 +251,14 @@ class AgentDevice {
     );
   }
 
+  /// Pinch to zoom. `scale < 1` zooms out, `scale > 1` zooms in.
+  Future<void> pinch({required double scale, Point? center}) async {
+    await backend.pinch(
+      await _ctx(),
+      BackendPinchOptions(scale: scale, center: center),
+    );
+  }
+
   /// Scroll in a [direction] (`'up'`, `'down'`, `'left'`, `'right'`) on
   /// the viewport.
   Future<Object?> scroll(
@@ -277,6 +289,11 @@ class AgentDevice {
     await backend.pressBack(await _ctx(), null);
   }
 
+  /// Press a named key (e.g. `'Return'`, `'Escape'`, `'Volume_Up'`).
+  Future<void> pressKey(String key, {Map<String, Object?>? options}) async {
+    await backend.pressKey(await _ctx(), key, options);
+  }
+
   Future<void> pressHome() async {
     await backend.pressHome(await _ctx());
   }
@@ -293,9 +310,7 @@ class AgentDevice {
   // Clipboard & Keyboard
   // =========================================================================
 
-  Future<String> getClipboard() => sessions
-      .get(sessionName)
-      .then((_) async => backend.getClipboard(await _ctx()));
+  Future<String> getClipboard() async => backend.getClipboard(await _ctx());
 
   Future<void> setClipboard(String text) async {
     await backend.setClipboard(await _ctx(), text);
@@ -308,6 +323,38 @@ class AgentDevice {
       await _ctx(),
       BackendKeyboardOptions(action: action),
     );
+  }
+
+  // =========================================================================
+  // Text Extraction & Alerts
+  // =========================================================================
+
+  /// Read accessible text from a snapshot node.
+  Future<BackendReadTextResult> readText(Object node) async {
+    return backend.readText(await _ctx(), node);
+  }
+
+  /// Search visible UI for [text] (exact match).
+  Future<BackendFindTextResult> findText(String text) async {
+    return backend.findText(await _ctx(), text);
+  }
+
+  /// Handle a system alert: `'get'`, `'accept'`, `'dismiss'`, `'wait'`.
+  Future<BackendAlertResult> handleAlert(
+    BackendAlertAction action, {
+    Map<String, Object?>? options,
+  }) async {
+    return backend.handleAlert(await _ctx(), action, options);
+  }
+
+  /// Push a file (or JSON payload) to [target] on the device.
+  Future<void> pushFile(BackendPushInput input, String target) async {
+    await backend.pushFile(await _ctx(), input, target);
+  }
+
+  /// Open platform settings (optionally scoped to [target]).
+  Future<void> openSettings([String? target]) async {
+    await backend.openSettings(await _ctx(), target);
   }
 
   // =========================================================================
@@ -330,7 +377,7 @@ class AgentDevice {
     await backend.closeApp(await _ctx(), resolved);
     if (resolved != null &&
         resolved == (await sessions.get(sessionName))?.appId) {
-      await _updateSession(appId: null);
+      await _updateSession(clear: const {'appId'});
     }
   }
 

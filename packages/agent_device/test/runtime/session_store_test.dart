@@ -21,6 +21,33 @@ void main() {
       expect(updated.deviceSerial, 'y');
     });
 
+    test('copyWith(clearFields) clears nullable fields to null', () {
+      const base = CommandSessionRecord(
+        name: 'default',
+        appId: 'com.example',
+        deviceSerial: 'x',
+      );
+      final cleared = base.copyWith(clearFields: const {'appId'});
+      expect(cleared.appId, isNull);
+      expect(cleared.deviceSerial, 'x');
+      expect(cleared.name, 'default');
+    });
+
+    test(
+      'copyWith(clearFields) wins over a positive value for the same field',
+      () {
+        const base = CommandSessionRecord(
+          name: 'default',
+          appId: 'com.example',
+        );
+        final out = base.copyWith(
+          appId: 'com.other',
+          clearFields: const {'appId'},
+        );
+        expect(out.appId, isNull);
+      },
+    );
+
     test('delete removes record', () async {
       final store = createMemorySessionStore();
       await store.set(const CommandSessionRecord(name: 'default'));
