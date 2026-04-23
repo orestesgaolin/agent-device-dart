@@ -1,0 +1,8 @@
+name: agent_device_workspace
+publish_to: none
+
+environment:
+  sdk: ^3.11.0
+
+workspace:
+  - packages/agent_device

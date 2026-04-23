@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs -I {} basename {})",
+      "Bash(dart --version)",
+      "Bash(dart pub *)",
+      "Bash(dart analyze *)",
+      "Bash(dart test *)",
+      "Bash(dart format *)",
+      "Bash(dart run *)",
+      "Bash(git init *)",
+      "Bash(git add *)",
+      "Bash(git -c user.email=dominik@makevisible.com -c user.name=dominik commit -q -m \"chore: phase 0 scaffold + errors/redaction port\")"
+    ]
+  }
+}
