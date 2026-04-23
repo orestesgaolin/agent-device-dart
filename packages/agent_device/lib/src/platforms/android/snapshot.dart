@@ -148,6 +148,14 @@ Future<String> _dumpUiHierarchyOnce(String serial) async {
   final fromStream = _extractUiDumpXml(streamed.stdout, streamed.stderr);
   if (fromStream != null) return fromStream;
 
+  // If the JVM was killed (leaked UiAutomationService registration, OOM,
+  // framework policy), adb returns exit 0 with the shell's "Killed" message
+  // in stdout and no XML. Don't waste another 8s on the fallback — it will
+  // fail the same way. Surface an actionable error instead.
+  if (_looksLikeUiAutomatorKilled(streamed.stdout, streamed.stderr)) {
+    throw _uiAutomatorKilledError(streamed.stdout, streamed.stderr);
+  }
+
   // Fallback: dump to file and read back.
   const dumpPath = '/sdcard/window_dump.xml';
   final dumpResult = await runCmd(
@@ -155,6 +163,10 @@ Future<String> _dumpUiHierarchyOnce(String serial) async {
     adbArgs(serial, ['shell', 'uiautomator', 'dump', dumpPath]),
     const ExecOptions(allowFailure: true, timeoutMs: _uiHierarchyDumpTimeoutMs),
   );
+
+  if (_looksLikeUiAutomatorKilled(dumpResult.stdout, dumpResult.stderr)) {
+    throw _uiAutomatorKilledError(dumpResult.stdout, dumpResult.stderr);
+  }
 
   final actualPath = _resolveDumpPath(
     dumpPath,
@@ -165,10 +177,22 @@ Future<String> _dumpUiHierarchyOnce(String serial) async {
   final result = await runCmd(
     'adb',
     adbArgs(serial, ['shell', 'cat', actualPath]),
+    const ExecOptions(allowFailure: true),
   );
 
   final xml = _extractUiDumpXml(result.stdout, result.stderr);
   if (xml == null) {
+    final stderr = result.stderr.toLowerCase();
+    // When the preceding uiautomator invocation was killed, the dump file
+    // was never written. `cat` reports "No such file or directory".
+    if (stderr.contains('no such file') ||
+        stderr.contains('cannot open') ||
+        result.exitCode != 0) {
+      throw _uiAutomatorKilledError(
+        '${dumpResult.stdout}\n${result.stdout}',
+        '${dumpResult.stderr}\n${result.stderr}',
+      );
+    }
     throw AppError(
       AppErrorCodes.commandFailed,
       'uiautomator dump did not return XML',
@@ -177,6 +201,38 @@ Future<String> _dumpUiHierarchyOnce(String serial) async {
   }
 
   return xml;
+}
+
+/// Detect the "UiAutomationService already registered" failure mode where
+/// the `uiautomator` JVM is killed by the Android runtime before it can
+/// produce any XML. The shell prints "Killed" on its own stderr and adb
+/// still exits 0, so the failure is invisible to the exit-code path.
+bool _looksLikeUiAutomatorKilled(String stdout, String stderr) {
+  final combined = '$stdout\n$stderr';
+  if (combined.contains('<hierarchy')) return false;
+  return RegExp(r'\bKilled\b').hasMatch(combined);
+}
+
+/// Build an [AppError] that points the user at the most common recovery
+/// (cold-restart the AVD / reboot the device) and records the captured
+/// output so the diagnostic path remains intact.
+AppError _uiAutomatorKilledError(String stdout, String stderr) {
+  const hint =
+      'The device\'s uiautomator was killed before producing XML (usually a '
+      'leaked UiAutomationService registration: "UiAutomationService ... '
+      'already registered!"). Cold-restart the emulator (`adb -s <serial> '
+      'emu kill` + relaunch the AVD) or reboot the device. On rootable '
+      'images, `adb root && adb shell stop && adb shell start` also works.';
+  return AppError(
+    AppErrorCodes.commandFailed,
+    'Android uiautomator dump failed: device killed the process. $hint',
+    details: {
+      'stdout': stdout,
+      'stderr': stderr,
+      'hint': hint,
+      'reason': 'uiautomator_killed',
+    },
+  );
 }
 
 /// Resolve the actual dump path from uiautomator output.

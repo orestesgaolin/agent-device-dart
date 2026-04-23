@@ -18,7 +18,8 @@
       "Bash(echo \"exit: $?\")",
       "Bash(xargs -I{} basename {} .ts)",
       "Bash(xargs -I{} basename {} .dart)",
-      "Bash(adb devices *)"
+      "Bash(adb devices *)",
+      "Bash(adb *)"
     ]
   }
 }
