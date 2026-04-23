@@ -91,6 +91,7 @@ export 'src/backend/options.dart'
         BackendTraceResult;
 export 'src/backend/platform.dart' show AgentDeviceBackendPlatform;
 export 'src/platforms/android/android_backend.dart' show AndroidBackend;
+export 'src/platforms/ios/ios_backend.dart' show IosBackend;
 export 'src/platforms/platform_selector.dart'
     show
         PlatformSelector,

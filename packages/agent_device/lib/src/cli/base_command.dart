@@ -3,6 +3,7 @@ library;
 
 import 'package:agent_device/src/backend/backend.dart';
 import 'package:agent_device/src/platforms/android/android_backend.dart';
+import 'package:agent_device/src/platforms/ios/ios_backend.dart';
 import 'package:agent_device/src/platforms/platform_selector.dart';
 import 'package:agent_device/src/runtime/agent_device.dart';
 import 'package:agent_device/src/runtime/contract.dart';
@@ -81,24 +82,31 @@ abstract class AgentDeviceCommand extends Command<int> {
     );
   }
 
-  /// Resolve the concrete [Backend] for the selected platform. For now
-  /// only Android is wired; iOS / macOS / Linux will land in Phase 8/9.
+  /// Resolve the concrete [Backend] for the selected platform. Android
+  /// is fully wired; iOS is in Phase 8A MVP mode — devices / screenshot /
+  /// openApp / closeApp / listApps / getAppState work (simulator only);
+  /// snapshot / tap / fill / selector commands need the XCUITest runner
+  /// bridge and will land in Phase 8B. macOS / Linux are Phase 9.
   Backend resolveBackend() {
-    final platform = argResults?['platform'] as String?;
-    if (platform == 'android') {
-      return const AndroidBackend();
-    }
-    // Auto-detect: try Android first since it's the only ported backend.
-    if (platform == null) {
-      return const AndroidBackend();
+    final platform =
+        _stringOption('platform') ?? argResults?['platform'] as String?;
+    switch (platform) {
+      case 'android':
+        return const AndroidBackend();
+      case 'ios':
+      case 'apple': // Phase 8A: treat `apple` as iOS.
+        return const IosBackend();
+      case null:
+        // Auto-detect: Android first because it's the fuller backend.
+        return const AndroidBackend();
     }
     throw AppError(
       AppErrorCodes.unsupportedPlatform,
       'Platform "$platform" is not yet implemented in the Dart port.',
       details: {
         'hint':
-            'Only --platform android is currently supported; '
-            'iOS / macOS / Linux are tracked in Phases 8–9 of the port.',
+            '--platform android and --platform ios are supported. '
+            'macOS / Linux are tracked in Phase 9.',
       },
     );
   }
