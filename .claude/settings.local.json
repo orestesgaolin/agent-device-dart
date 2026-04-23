@@ -21,7 +21,9 @@
       "Bash(adb devices *)",
       "Bash(adb *)",
       "Bash(echo \"exit=$?\")",
-      "Bash(git -C /Users/dominik/Projects/tmp/agent-device-dart diff 0df6bbc^..0df6bbc -- packages/agent_device/lib/agent_device.dart)"
+      "Bash(git -C /Users/dominik/Projects/tmp/agent-device-dart diff 0df6bbc^..0df6bbc -- packages/agent_device/lib/agent_device.dart)",
+      "Read(//tmp/**)",
+      "Bash(rm -f /tmp/agent-cli-test.png)"
     ]
   }
 }
