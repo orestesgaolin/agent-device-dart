@@ -1,27 +1,50 @@
 // Port of agent-device/src/platforms/android/index.ts
 
-import 'package:agent_device/src/backend/backend_exports.dart';
-import 'package:agent_device/src/platforms/android/screenshot.dart';
-import 'package:agent_device/src/platforms/android/snapshot.dart';
+import 'package:agent_device/src/backend/backend.dart';
+import 'package:agent_device/src/core/device_rotation.dart';
 import 'package:agent_device/src/snapshot/snapshot.dart';
-import 'package:agent_device/src/utils/errors.dart';
 
-/// Android platform backend implementation.
+import 'app_lifecycle.dart';
+import 'device_input_state.dart';
+import 'devices.dart';
+import 'input_actions.dart';
+import 'screenshot.dart';
+import 'snapshot.dart';
+
+/// Android platform backend.
 ///
-/// Extends the abstract Backend class and provides concrete implementations
-/// for Android-specific operations by delegating to module-level functions.
-/// This is the public entry point for Android backend capabilities.
+/// Delegates to the Wave A/B/C1/C2 Android module functions. Only methods
+/// the TS Android platform actually exposes are wired; the rest inherit
+/// the `unsupported` default from [Backend].
+///
+/// The TS source (`src/platforms/android/index.ts`) is a barrel of function
+/// exports, not a class — `src/core/dispatch.ts` calls them directly based
+/// on `device.platform`. The Dart port wraps the same functions behind a
+/// [Backend] subclass so the runtime dispatcher (Phase 4) can treat all
+/// platforms uniformly.
+///
+/// Device serial resolution: Wave C Android functions take a `String serial`
+/// as first argument. The Dart-port-specific [BackendCommandContext.deviceSerial]
+/// field carries it; Phase 4 runtime populates it from session state.
 class AndroidBackend extends Backend {
-  AndroidBackend();
+  const AndroidBackend();
 
   @override
   AgentDeviceBackendPlatform get platform => AgentDeviceBackendPlatform.android;
 
-  @override
-  BackendCapabilitySet? get capabilities => null;
+  String _serial(BackendCommandContext ctx) {
+    final serial = ctx.deviceSerial;
+    if (serial == null || serial.isEmpty) {
+      unsupported(
+        'operation requires ctx.deviceSerial populated by the runtime',
+      );
+    }
+    return serial;
+  }
 
-  @override
-  BackendEscapeHatches? get escapeHatches => null;
+  // =========================================================================
+  // Snapshot and Screenshot
+  // =========================================================================
 
   @override
   Future<BackendSnapshotResult> captureSnapshot(
@@ -35,8 +58,7 @@ class AndroidBackend extends Backend {
       scope: options?.scope,
       raw: options?.raw,
     );
-    final result = await snapshotAndroid(ctx.appId ?? '', options: opts);
-
+    final result = await snapshotAndroid(_serial(ctx), options: opts);
     return BackendSnapshotResult(
       nodes: result.nodes,
       truncated: result.truncated,
@@ -53,42 +75,22 @@ class AndroidBackend extends Backend {
     String outPath,
     BackendScreenshotOptions? options,
   ) async {
-    await screenshotAndroid(ctx.appId ?? '', outPath);
+    await screenshotAndroid(_serial(ctx), outPath);
     return BackendScreenshotResult(path: outPath);
   }
 
-  @override
-  Future<BackendReadTextResult> readText(
-    BackendCommandContext ctx,
-    Object node,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'readText is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendFindTextResult> findText(
-    BackendCommandContext ctx,
-    String text,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'findText is not supported on Android',
-    );
-  }
+  // =========================================================================
+  // Interaction
+  // =========================================================================
 
   @override
   Future<BackendActionResult> tap(
     BackendCommandContext ctx,
     Point point,
     BackendTapOptions? options,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'tap is not supported on Android',
-    );
+  ) async {
+    await pressAndroid(_serial(ctx), point.x.round(), point.y.round());
+    return null;
   }
 
   @override
@@ -97,11 +99,15 @@ class AndroidBackend extends Backend {
     Point point,
     String text,
     BackendFillOptions? options,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'fill is not supported on Android',
+  ) async {
+    await fillAndroid(
+      _serial(ctx),
+      point.x.round(),
+      point.y.round(),
+      text,
+      options?.delayMs ?? 0,
     );
+    return null;
   }
 
   @override
@@ -109,19 +115,19 @@ class AndroidBackend extends Backend {
     BackendCommandContext ctx,
     String text, [
     Map<String, Object?>? options,
-  ]) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'typeText is not supported on Android',
-    );
+  ]) async {
+    final delayMs = (options?['delayMs'] as int?) ?? 0;
+    await typeAndroid(_serial(ctx), text, delayMs);
+    return null;
   }
 
   @override
-  Future<BackendActionResult> focus(BackendCommandContext ctx, Point point) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'focus is not supported on Android',
-    );
+  Future<BackendActionResult> focus(
+    BackendCommandContext ctx,
+    Point point,
+  ) async {
+    await focusAndroid(_serial(ctx), point.x.round(), point.y.round());
+    return null;
   }
 
   @override
@@ -129,11 +135,14 @@ class AndroidBackend extends Backend {
     BackendCommandContext ctx,
     Point point,
     BackendLongPressOptions? options,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'longPress is not supported on Android',
+  ) async {
+    await longPressAndroid(
+      _serial(ctx),
+      point.x.round(),
+      point.y.round(),
+      options?.durationMs ?? 800,
     );
+    return null;
   }
 
   @override
@@ -142,344 +151,130 @@ class AndroidBackend extends Backend {
     Point from,
     Point to,
     BackendSwipeOptions? options,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'swipe is not supported on Android',
+  ) async {
+    await swipeAndroid(
+      _serial(ctx),
+      from.x.round(),
+      from.y.round(),
+      to.x.round(),
+      to.y.round(),
+      options?.durationMs ?? 250,
     );
+    return null;
   }
 
-  @override
-  Future<BackendActionResult> scroll(
-    BackendCommandContext ctx,
-    BackendScrollTarget target,
-    BackendScrollOptions options,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'scroll is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendActionResult> pinch(
-    BackendCommandContext ctx,
-    BackendPinchOptions options,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'pinch is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendActionResult> pressKey(
-    BackendCommandContext ctx,
-    String key, [
-    Map<String, Object?>? options,
-  ]) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'pressKey is not supported on Android',
-    );
-  }
+  // =========================================================================
+  // Navigation
+  // =========================================================================
 
   @override
   Future<BackendActionResult> pressBack(
     BackendCommandContext ctx,
     BackendBackOptions? options,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'pressBack is not supported on Android',
-    );
+  ) async {
+    await backAndroid(_serial(ctx));
+    return null;
   }
 
   @override
-  Future<BackendActionResult> pressHome(BackendCommandContext ctx) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'pressHome is not supported on Android',
-    );
+  Future<BackendActionResult> pressHome(BackendCommandContext ctx) async {
+    await homeAndroid(_serial(ctx));
+    return null;
   }
 
   @override
   Future<BackendActionResult> rotate(
     BackendCommandContext ctx,
     BackendDeviceOrientation orientation,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'rotate is not supported on Android',
-    );
+  ) async {
+    await rotateAndroid(_serial(ctx), _toDeviceRotation(orientation));
+    return null;
   }
 
   @override
-  Future<Object?> setKeyboard(
-    BackendCommandContext ctx,
-    BackendKeyboardOptions options,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'setKeyboard is not supported on Android',
-    );
+  Future<BackendActionResult> openAppSwitcher(BackendCommandContext ctx) async {
+    await appSwitcherAndroid(_serial(ctx));
+    return null;
   }
 
+  // =========================================================================
+  // Clipboard
+  // =========================================================================
+
   @override
-  Future<String> getClipboard(BackendCommandContext ctx) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'getClipboard is not supported on Android',
-    );
-  }
+  Future<String> getClipboard(BackendCommandContext ctx) =>
+      readAndroidClipboardText(_serial(ctx));
 
   @override
   Future<BackendActionResult> setClipboard(
     BackendCommandContext ctx,
     String text,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'setClipboard is not supported on Android',
-    );
+  ) async {
+    await writeAndroidClipboardText(_serial(ctx), text);
+    return null;
   }
 
-  @override
-  Future<BackendAlertResult> handleAlert(
-    BackendCommandContext ctx,
-    BackendAlertAction action, [
-    Map<String, Object?>? options,
-  ]) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'handleAlert is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendActionResult> openSettings(
-    BackendCommandContext ctx, [
-    String? target,
-  ]) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'openSettings is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendActionResult> openAppSwitcher(BackendCommandContext ctx) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'openAppSwitcher is not supported on Android',
-    );
-  }
+  // =========================================================================
+  // App Management
+  // =========================================================================
 
   @override
   Future<BackendActionResult> openApp(
     BackendCommandContext ctx,
     BackendOpenTarget target,
     BackendOpenOptions? options,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'openApp is not supported on Android',
-    );
+  ) async {
+    final app = target.app ?? target.appId ?? target.packageName ?? target.url;
+    if (app == null || app.isEmpty) {
+      unsupported(
+        'openApp requires target.app/appId/packageName/url on Android',
+      );
+    }
+    await openAndroidApp(_serial(ctx), app);
+    return null;
   }
 
   @override
   Future<BackendActionResult> closeApp(
     BackendCommandContext ctx, [
     String? app,
-  ]) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'closeApp is not supported on Android',
-    );
+  ]) async {
+    if (app == null || app.isEmpty) {
+      unsupported('closeApp requires an app id on Android');
+    }
+    await closeAndroidApp(_serial(ctx), app);
+    return null;
   }
 
   @override
-  Future<List<BackendAppInfo>> listApps(
-    BackendCommandContext ctx, [
-    BackendAppListFilter? filter,
-  ]) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'listApps is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendAppState> getAppState(BackendCommandContext ctx, String app) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'getAppState is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendActionResult> pushFile(
+  Future<BackendAppState> getAppState(
     BackendCommandContext ctx,
-    BackendPushInput input,
-    String target,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'pushFile is not supported on Android',
+    String app,
+  ) async {
+    final state = await getAndroidAppState(_serial(ctx));
+    return BackendAppState(
+      appId: state.package,
+      packageName: state.package,
+      activity: state.activity,
+      state: state.package == null ? 'unknown' : 'foreground',
     );
   }
 
-  @override
-  Future<BackendActionResult> triggerAppEvent(
-    BackendCommandContext ctx,
-    BackendAppEvent event,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'triggerAppEvent is not supported on Android',
-    );
-  }
+  // =========================================================================
+  // Device Management
+  // =========================================================================
 
   @override
   Future<List<BackendDeviceInfo>> listDevices(
     BackendCommandContext ctx, [
     BackendDeviceFilter? filter,
-  ]) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'listDevices is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendActionResult> bootDevice(
-    BackendCommandContext ctx, [
-    BackendDeviceTarget? target,
-  ]) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'bootDevice is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendEnsureSimulatorResult> ensureSimulator(
-    BackendCommandContext ctx,
-    BackendEnsureSimulatorOptions options,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'ensureSimulator is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendInstallSource> resolveInstallSource(
-    BackendCommandContext ctx,
-    BackendInstallSource source,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'resolveInstallSource is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendInstallResult> installApp(
-    BackendCommandContext ctx,
-    BackendInstallTarget target,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'installApp is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendInstallResult> reinstallApp(
-    BackendCommandContext ctx,
-    BackendInstallTarget target,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'reinstallApp is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendRecordingResult> startRecording(
-    BackendCommandContext ctx,
-    BackendRecordingOptions? options,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'startRecording is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendRecordingResult> stopRecording(
-    BackendCommandContext ctx,
-    BackendRecordingOptions? options,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'stopRecording is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendTraceResult> startTrace(
-    BackendCommandContext ctx,
-    BackendTraceOptions? options,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'startTrace is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendTraceResult> stopTrace(
-    BackendCommandContext ctx,
-    BackendTraceOptions? options,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'stopTrace is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendReadLogsResult> readLogs(
-    BackendCommandContext ctx,
-    BackendReadLogsOptions? options,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'readLogs is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendDumpNetworkResult> dumpNetwork(
-    BackendCommandContext ctx,
-    BackendDumpNetworkOptions? options,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'dumpNetwork is not supported on Android',
-    );
-  }
-
-  @override
-  Future<BackendMeasurePerfResult> measurePerf(
-    BackendCommandContext ctx,
-    BackendMeasurePerfOptions? options,
-  ) {
-    throw AppError(
-      AppErrorCodes.unsupportedOperation,
-      'measurePerf is not supported on Android',
-    );
-  }
+  ]) => listAndroidDevices();
 }
+
+DeviceRotation _toDeviceRotation(BackendDeviceOrientation o) => switch (o) {
+  BackendDeviceOrientation.portrait => DeviceRotation.portrait,
+  BackendDeviceOrientation.portraitUpsideDown =>
+    DeviceRotation.portraitUpsideDown,
+  BackendDeviceOrientation.landscapeLeft => DeviceRotation.landscapeLeft,
+  BackendDeviceOrientation.landscapeRight => DeviceRotation.landscapeRight,
+};

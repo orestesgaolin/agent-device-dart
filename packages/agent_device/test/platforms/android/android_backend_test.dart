@@ -6,27 +6,27 @@ import 'package:test/test.dart';
 void main() {
   group('AndroidBackend', () {
     test('instantiates correctly', () {
-      final backend = AndroidBackend();
+      final backend = const AndroidBackend();
       expect(backend, isNotNull);
     });
 
     test('implements Backend interface', () {
-      final backend = AndroidBackend() as Backend;
+      final backend = const AndroidBackend() as Backend;
       expect(backend, isA<Backend>());
     });
 
     test('reports correct platform', () {
-      final backend = AndroidBackend();
+      final backend = const AndroidBackend();
       expect(backend.platform, equals(AgentDeviceBackendPlatform.android));
     });
 
     test('has no capabilities by default', () {
-      final backend = AndroidBackend();
+      final backend = const AndroidBackend();
       expect(backend.capabilities, isNull);
     });
 
     test('has no escape hatches by default', () {
-      final backend = AndroidBackend();
+      final backend = const AndroidBackend();
       expect(backend.escapeHatches, isNull);
     });
 
@@ -34,7 +34,7 @@ void main() {
       // This is a compile-time check: if any abstract method is not
       // overridden, this test file will not compile.
       // At runtime, we verify that the backend is a concrete implementation.
-      final backend = AndroidBackend();
+      final backend = const AndroidBackend();
       expect(backend, isNotNull);
 
       // Verify all methods are defined and callable (some will throw
@@ -46,7 +46,7 @@ void main() {
     test(
       'unsupported methods throw AppError with unsupportedOperation code',
       () async {
-        final backend = AndroidBackend();
+        final backend = const AndroidBackend();
         final ctx = const BackendCommandContext();
 
         // Test a few unsupported methods to verify they throw.

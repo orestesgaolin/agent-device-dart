@@ -31,7 +31,7 @@ void main() {
           // 4. Capture snapshot
           // 5. Verify snapshot contains expected UI elements
 
-          final backend = AndroidBackend() as Backend;
+          final backend = const AndroidBackend() as Backend;
           expect(backend.platform, equals(AgentDeviceBackendPlatform.android));
 
           // TODO(port): Implement full integration test when emulator setup is available.
@@ -50,7 +50,7 @@ void main() {
 
   group('AndroidBackend (unit)', () {
     test('is a concrete Backend implementation without requiring emulator', () {
-      final backend = AndroidBackend();
+      final backend = const AndroidBackend();
       expect(backend, isA<Backend>());
       expect(backend.platform, equals(AgentDeviceBackendPlatform.android));
     });
