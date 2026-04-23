@@ -1,0 +1,363 @@
+// Phase 10 replay runner — execute a parsed `.ad` script against a live
+// [AgentDevice], step by step. Mirrors the MVP slice of
+// `agent-device/src/daemon/handlers/session-replay-runtime.ts` without
+// the healing / self-updating path (that arrives in a later Phase 10
+// follow-up alongside record-trace and the observability handlers).
+//
+// The dispatch table keeps things explicit: each supported action maps
+// to a concrete [AgentDevice] method. Unknown actions surface as a
+// structured failure so scripts fail loud rather than silently no-op.
+library;
+
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:agent_device/src/backend/backend.dart';
+import 'package:agent_device/src/runtime/agent_device.dart';
+import 'package:agent_device/src/runtime/interaction_target.dart';
+import 'package:agent_device/src/utils/errors.dart';
+import 'package:path/path.dart' as p;
+
+import 'script.dart';
+import 'session_action.dart';
+
+/// One executed step.
+class ReplayStepResult {
+  final int index;
+  final SessionAction action;
+  final bool ok;
+  final String? errorCode;
+  final String? errorMessage;
+  final List<String> artifactPaths;
+  final int durationMs;
+
+  const ReplayStepResult({
+    required this.index,
+    required this.action,
+    required this.ok,
+    required this.durationMs,
+    this.errorCode,
+    this.errorMessage,
+    this.artifactPaths = const [],
+  });
+
+  Map<String, Object?> toJson() => {
+    'step': index + 1,
+    'command': action.command,
+    'positionals': action.positionals,
+    'ok': ok,
+    'durationMs': durationMs,
+    if (errorCode != null) 'errorCode': errorCode,
+    if (errorMessage != null) 'errorMessage': errorMessage,
+    if (artifactPaths.isNotEmpty) 'artifactPaths': artifactPaths,
+  };
+}
+
+/// Aggregate result of replaying one script.
+class ReplayRunResult {
+  final String scriptPath;
+  final List<ReplayStepResult> steps;
+  final bool ok;
+  final int durationMs;
+
+  const ReplayRunResult({
+    required this.scriptPath,
+    required this.steps,
+    required this.ok,
+    required this.durationMs,
+  });
+
+  int get passed => steps.where((s) => s.ok).length;
+  int get failed => steps.where((s) => !s.ok).length;
+
+  Map<String, Object?> toJson() => {
+    'scriptPath': scriptPath,
+    'ok': ok,
+    'durationMs': durationMs,
+    'passed': passed,
+    'failed': failed,
+    'steps': steps.map((s) => s.toJson()).toList(),
+  };
+}
+
+/// Replay [scriptPath] against [device]. Stops at the first failing step
+/// (matches TS replay default where `replayUpdate=false`). Emits one
+/// line per step to [log] if provided, for human-mode progress.
+Future<ReplayRunResult> runReplayScript({
+  required String scriptPath,
+  required AgentDevice device,
+  String? artifactDir,
+  void Function(ReplayStepResult step)? onStep,
+}) async {
+  final sw = Stopwatch()..start();
+  final resolved = File(scriptPath).absolute.path;
+  final text = await File(resolved).readAsString();
+  final firstChar = text.trimLeft().isEmpty ? '' : text.trimLeft()[0];
+  if (firstChar == '{' || firstChar == '[') {
+    throw AppError(
+      AppErrorCodes.invalidArgs,
+      'replay accepts .ad script files. JSON payloads are not supported.',
+      details: {'scriptPath': resolved},
+    );
+  }
+
+  final actions = parseReplayScript(text);
+  final steps = <ReplayStepResult>[];
+  var ok = true;
+  final effectiveArtifactDir = artifactDir;
+  if (effectiveArtifactDir != null) {
+    await Directory(effectiveArtifactDir).create(recursive: true);
+  }
+
+  for (var i = 0; i < actions.length; i++) {
+    final action = actions[i];
+    if (action.command == 'replay') continue; // nested replay not supported
+    final stepSw = Stopwatch()..start();
+    try {
+      final artifacts = await _dispatch(
+        action: action,
+        device: device,
+        artifactDir: effectiveArtifactDir,
+        index: i,
+      );
+      stepSw.stop();
+      final step = ReplayStepResult(
+        index: i,
+        action: action,
+        ok: true,
+        durationMs: stepSw.elapsedMilliseconds,
+        artifactPaths: artifacts,
+      );
+      steps.add(step);
+      if (onStep != null) onStep(step);
+    } catch (e) {
+      stepSw.stop();
+      final code = e is AppError ? e.code : AppErrorCodes.commandFailed;
+      final message = e is AppError ? e.message : e.toString();
+      final step = ReplayStepResult(
+        index: i,
+        action: action,
+        ok: false,
+        durationMs: stepSw.elapsedMilliseconds,
+        errorCode: code,
+        errorMessage: message,
+      );
+      steps.add(step);
+      ok = false;
+      if (onStep != null) onStep(step);
+      break;
+    }
+  }
+
+  sw.stop();
+  return ReplayRunResult(
+    scriptPath: resolved,
+    steps: steps,
+    ok: ok,
+    durationMs: sw.elapsedMilliseconds,
+  );
+}
+
+/// Dispatch a single [SessionAction] to its matching [AgentDevice] call.
+/// Returns any artifact paths (screenshot files, snapshot JSON dumps)
+/// created by the action so the caller can aggregate them per-test.
+Future<List<String>> _dispatch({
+  required SessionAction action,
+  required AgentDevice device,
+  required String? artifactDir,
+  required int index,
+}) async {
+  final command = action.command;
+  final positionals = action.positionals;
+  final flags = action.flags;
+
+  switch (command) {
+    case 'open':
+      if (positionals.isEmpty) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "open" requires a target',
+        );
+      }
+      await device.openApp(positionals.first);
+      return const [];
+
+    case 'close':
+      await device.closeApp(positionals.isEmpty ? null : positionals.first);
+      return const [];
+
+    case 'home':
+      await device.pressHome();
+      return const [];
+
+    case 'back':
+      await device.pressBack();
+      return const [];
+
+    case 'app-switcher':
+      await device.openAppSwitcher();
+      return const [];
+
+    case 'rotate':
+      if (positionals.isEmpty) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "rotate" requires an orientation',
+        );
+      }
+      await device.rotate(_parseOrientation(positionals.first));
+      return const [];
+
+    case 'type':
+      if (positionals.isEmpty) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "type" requires text',
+        );
+      }
+      await device.typeText(positionals.join(' '));
+      return const [];
+
+    case 'swipe':
+      if (positionals.length < 4) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "swipe" requires <x1> <y1> <x2> <y2>',
+        );
+      }
+      final coords = positionals.map(num.parse).toList();
+      await device.swipe(
+        coords[0],
+        coords[1],
+        coords[2],
+        coords[3],
+        durationMs: flags['durationMs'] as int?,
+      );
+      return const [];
+
+    case 'longpress':
+      if (positionals.length < 2) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "longpress" requires <x> <y>',
+        );
+      }
+      await device.longPress(
+        num.parse(positionals[0]),
+        num.parse(positionals[1]),
+        durationMs: flags['durationMs'] as int?,
+      );
+      return const [];
+
+    case 'pinch':
+      final scale = (flags['scale'] as num?)?.toDouble();
+      if (scale == null || scale <= 0) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "pinch" requires --scale <positive-number>',
+        );
+      }
+      await device.pinch(scale: scale);
+      return const [];
+
+    case 'click':
+    case 'press':
+    case 'tap':
+      final target = InteractionTarget.parseArgs(positionals);
+      if (target == null) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "$command" could not resolve a target from $positionals',
+        );
+      }
+      await device.tapTarget(target);
+      return const [];
+
+    case 'fill':
+      if (positionals.length < 2) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "fill" requires a target and text',
+        );
+      }
+      final lead = positionals.first;
+      if (lead.startsWith('@') || !_isNum(lead)) {
+        final target = InteractionTarget.parseArgs([lead]);
+        if (target == null) {
+          throw AppError(
+            AppErrorCodes.invalidArgs,
+            'replay "fill" could not resolve target "$lead"',
+          );
+        }
+        final text = positionals.sublist(1).join(' ');
+        await device.fillTarget(target, text);
+      } else {
+        if (positionals.length < 3) {
+          throw AppError(
+            AppErrorCodes.invalidArgs,
+            'replay coord-style "fill" requires <x> <y> <text>',
+          );
+        }
+        await device.fill(
+          num.parse(positionals[0]),
+          num.parse(positionals[1]),
+          positionals.sublist(2).join(' '),
+        );
+      }
+      return const [];
+
+    case 'snapshot':
+      final res = await device.snapshot(
+        interactiveOnly: flags['snapshotInteractiveOnly'] as bool?,
+        compact: flags['snapshotCompact'] as bool?,
+        depth: flags['snapshotDepth'] as int?,
+        scope: flags['snapshotScope'] as String?,
+        raw: flags['snapshotRaw'] as bool?,
+      );
+      if (artifactDir != null) {
+        final out = File(
+          p.join(artifactDir, 'step-${index + 1}-snapshot.json'),
+        );
+        await out.writeAsString(
+          jsonEncode({
+            'nodeCount': res.nodes?.length ?? 0,
+            'truncated': res.truncated,
+          }),
+        );
+        return [out.path];
+      }
+      return const [];
+
+    case 'screenshot':
+      final outPath = positionals.isNotEmpty
+          ? positionals.first
+          : (artifactDir == null
+                ? p.join(
+                    Directory.systemTemp.path,
+                    'ad-step-${index + 1}-${DateTime.now().microsecondsSinceEpoch}.png',
+                  )
+                : p.join(artifactDir, 'step-${index + 1}.png'));
+      await device.screenshot(outPath);
+      return [outPath];
+
+    default:
+      throw AppError(
+        AppErrorCodes.unsupportedOperation,
+        'replay does not yet handle command "$command"',
+        details: {'step': index + 1, 'command': command},
+      );
+  }
+}
+
+BackendDeviceOrientation _parseOrientation(String raw) => switch (raw) {
+  'portrait' => BackendDeviceOrientation.portrait,
+  'portrait-upside-down' ||
+  'portraitUpsideDown' => BackendDeviceOrientation.portraitUpsideDown,
+  'landscape-left' || 'landscapeLeft' => BackendDeviceOrientation.landscapeLeft,
+  'landscape-right' ||
+  'landscapeRight' => BackendDeviceOrientation.landscapeRight,
+  _ => throw AppError(AppErrorCodes.invalidArgs, 'Unknown orientation "$raw".'),
+};
+
+bool _isNum(String s) => num.tryParse(s) != null;

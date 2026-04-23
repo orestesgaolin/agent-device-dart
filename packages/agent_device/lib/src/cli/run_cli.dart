@@ -7,6 +7,7 @@ import 'package:args/command_runner.dart';
 
 import 'commands/devices_cmd.dart';
 import 'commands/ensure_simulator_cmd.dart';
+import 'commands/replay_cmd.dart';
 import 'commands/screenshot_cmd.dart';
 import 'commands/selector_cmds.dart';
 import 'commands/session_cmd.dart';
@@ -78,6 +79,8 @@ Future<int> runCli(List<String> argv) async {
     ..addCommand(IsCommand())
     ..addCommand(WaitCommand())
     ..addCommand(EnsureSimulatorCommand())
+    ..addCommand(ReplayCommand())
+    ..addCommand(TestCommand())
     ..addCommand(SessionCommand());
 
   // Decide JSON mode for top-level error reporting by peeking at argv —
