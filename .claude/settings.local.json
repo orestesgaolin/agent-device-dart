@@ -2,20 +2,18 @@
   "permissions": {
     "allow": [
       "Bash(xargs -I {} basename {})",
-      "Bash(dart --version)",
-      "Bash(dart pub *)",
+      "Bash(fvm dart *)",
+      "Bash(dart *)",
       "Bash(dart analyze *)",
       "Bash(dart test *)",
       "Bash(dart format *)",
       "Bash(dart run *)",
       "Bash(git init *)",
       "Bash(git add *)",
-      "Bash(git -c user.email=dominik@makevisible.com -c user.name=dominik commit -q -m \"chore: phase 0 scaffold + errors/redaction port\")",
+      "Bash(git -c user.email=dominik@makevisible.com  *)",
       "Bash(echo \"EXIT=$?\")",
       "Bash(dart fix *)",
-      "Bash(git -c user.email=dominik@makevisible.com -c user.name=dominik commit -q -m 'feat\\(snapshot\\): phase 1 port — errors, redaction, snapshot model' -m '- errors + redaction \\(100% test coverage of code paths\\) *)",
-      "Bash(grep -E \"\\(reformatted|^$\\)\")",
-      "Bash(grep -E \"reformatted|^$\")"
+      "Bash(grep *)"
     ]
   }
 }
