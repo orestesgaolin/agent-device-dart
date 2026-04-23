@@ -14,6 +14,7 @@
       "Bash(echo \"EXIT=$?\")",
       "Bash(dart fix *)",
       "Bash(grep *)",
+      "Bash(sed *)",
       "Bash(echo \"exit: $?\")"
     ]
   }
