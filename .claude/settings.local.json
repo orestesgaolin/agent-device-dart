@@ -23,7 +23,9 @@
       "Bash(echo \"exit=$?\")",
       "Bash(git -C /Users/dominik/Projects/tmp/agent-device-dart diff 0df6bbc^..0df6bbc -- packages/agent_device/lib/agent_device.dart)",
       "Read(//tmp/**)",
-      "Bash(rm -f /tmp/agent-cli-test.png)"
+      "Bash(rm -f /tmp/agent-cli-test.png)",
+      "Bash(AGENT_DEVICE_ANDROID_LIVE=1 dart test packages/agent_device/test/platforms/android/android_cli_live_test.dart --reporter=expanded)",
+      "Bash(AGENT_DEVICE_ANDROID_LIVE=1 dart test packages/agent_device/test/platforms/android/android_live_test.dart --reporter=expanded)"
     ]
   }
 }

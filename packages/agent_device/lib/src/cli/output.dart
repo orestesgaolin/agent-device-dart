@@ -65,8 +65,9 @@ void printError(
   if (normalized.diagnosticId != null) {
     buf.writeln('  diagnosticId: ${normalized.diagnosticId}');
   }
-  if (normalized.logPath != null)
+  if (normalized.logPath != null) {
     buf.writeln('  logPath: ${normalized.logPath}');
+  }
   if (showDetails && normalized.details != null) {
     buf.writeln(
       '  details: ${const JsonEncoder.withIndent('  ').convert(normalized.details)}',
