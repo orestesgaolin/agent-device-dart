@@ -1,11 +1,16 @@
 // Port of agent-device/src/platforms/android/index.ts
 
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:agent_device/src/backend/backend.dart';
 import 'package:agent_device/src/core/device_rotation.dart';
 import 'package:agent_device/src/core/scroll_gesture.dart';
+import 'package:agent_device/src/runtime/paths.dart';
 import 'package:agent_device/src/snapshot/snapshot.dart';
 import 'package:agent_device/src/utils/errors.dart';
 import 'package:agent_device/src/utils/exec.dart';
+import 'package:path/path.dart' as p;
 
 import 'app_lifecycle.dart';
 import 'device_input_state.dart';
@@ -398,6 +403,139 @@ class AndroidBackend extends Backend {
   }
 
   // =========================================================================
+  // Recording (screenrecord)
+  // =========================================================================
+
+  /// Start an on-device `screenrecord` session. Forks the recorder on
+  /// the device (so the host-side adb call returns immediately) and
+  /// captures the device-side PID into a cross-invocation record at
+  /// `<stateDir>/android-recorders/<serial>.json`. `stopRecording` later
+  /// kills that PID with SIGINT and pulls the resulting MP4.
+  @override
+  Future<BackendRecordingResult> startRecording(
+    BackendCommandContext ctx,
+    BackendRecordingOptions? options,
+  ) async {
+    final outPath = options?.outPath;
+    if (outPath == null || outPath.isEmpty) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'Android startRecording requires options.outPath.',
+      );
+    }
+    final serial = _serial(ctx);
+    // If a previous recording is on disk, SIGINT the old PID so we don't
+    // leak screenrecord processes on the device.
+    final existing = await _readAndroidRecorder(serial);
+    if (existing != null) {
+      await runCmd('adb', [
+        '-s',
+        serial,
+        'shell',
+        'kill -2 ${existing.pid}',
+      ], const ExecOptions(allowFailure: true, timeoutMs: 5000));
+      await _deleteAndroidRecorder(serial);
+    }
+    final remotePath =
+        '/sdcard/agent-device-recording-'
+        '${DateTime.now().microsecondsSinceEpoch}.mp4';
+    final cmd = <String>['screenrecord'];
+    // Quality / fps would go here once we decide a mapping for Android's
+    // `--bit-rate` / `--size` flags. Deferred.
+    cmd.addAll([remotePath, '>/dev/null', '2>&1', '&', 'echo', r'$!']);
+    final r = await runCmd('adb', [
+      '-s',
+      serial,
+      'shell',
+      cmd.join(' '),
+    ], const ExecOptions(allowFailure: true, timeoutMs: 10000));
+    if (r.exitCode != 0) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'adb screenrecord failed to launch (exit ${r.exitCode}).',
+        details: {'stdout': r.stdout, 'stderr': r.stderr},
+      );
+    }
+    final pidStr = r.stdout.trim().split(RegExp(r'\s+')).last;
+    final pid = int.tryParse(pidStr);
+    if (pid == null || pid <= 0) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'adb screenrecord did not echo a device PID '
+        '(got ${r.stdout.length} bytes of stdout).',
+        details: {'stdout': r.stdout, 'stderr': r.stderr},
+      );
+    }
+    await _writeAndroidRecorder(
+      _AndroidRecorderRecord(
+        serial: serial,
+        pid: pid,
+        remotePath: remotePath,
+        outPath: outPath,
+      ),
+    );
+    return BackendRecordingResult(path: outPath);
+  }
+
+  @override
+  Future<BackendRecordingResult> stopRecording(
+    BackendCommandContext ctx,
+    BackendRecordingOptions? options,
+  ) async {
+    final outPath = options?.outPath;
+    if (outPath == null || outPath.isEmpty) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'Android stopRecording requires options.outPath (the same path '
+        'passed to startRecording).',
+      );
+    }
+    final serial = _serial(ctx);
+    final record = await _readAndroidRecorder(serial);
+    if (record == null) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'No Android recording in progress for $serial.',
+      );
+    }
+    // SIGINT so screenrecord finalizes the moov atom before exiting.
+    await runCmd('adb', [
+      '-s',
+      serial,
+      'shell',
+      'kill -2 ${record.pid}',
+    ], const ExecOptions(allowFailure: true, timeoutMs: 5000));
+    // Brief grace period for finalization before we pull the file.
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    final dst = File(outPath);
+    await dst.parent.create(recursive: true);
+    final pull = await runCmd('adb', [
+      '-s',
+      serial,
+      'pull',
+      record.remotePath,
+      outPath,
+    ], const ExecOptions(allowFailure: true, timeoutMs: 60000));
+    // Best-effort cleanup on-device even if pull failed.
+    await runCmd('adb', [
+      '-s',
+      serial,
+      'shell',
+      'rm ${record.remotePath}',
+    ], const ExecOptions(allowFailure: true, timeoutMs: 5000));
+    await _deleteAndroidRecorder(serial);
+    if (pull.exitCode != 0) {
+      return BackendRecordingResult(
+        path: outPath,
+        warning:
+            'adb pull ${record.remotePath} failed (exit ${pull.exitCode}). '
+            'stderr: ${pull.stderr.trim()}',
+      );
+    }
+    return BackendRecordingResult(path: outPath);
+  }
+
+  // =========================================================================
   // Diagnostics: Logs (one-shot)
   // =========================================================================
 
@@ -509,6 +647,82 @@ String? resolveAdbLogcatTimeWindow(String? since, {DateTime? now}) {
   String three(int v) => v.toString().padLeft(3, '0');
   return '${two(since0.month)}-${two(since0.day)} ${two(since0.hour)}:'
       '${two(since0.minute)}:${two(since0.second)}.${three(since0.millisecond)}';
+}
+
+// =========================================================================
+// Android recorder record (on-device screenrecord PID + paths)
+// =========================================================================
+
+class _AndroidRecorderRecord {
+  final String serial;
+  final int pid;
+  final String remotePath;
+  final String outPath;
+  const _AndroidRecorderRecord({
+    required this.serial,
+    required this.pid,
+    required this.remotePath,
+    required this.outPath,
+  });
+
+  Map<String, Object?> toJson() => {
+    'serial': serial,
+    'pid': pid,
+    'remotePath': remotePath,
+    'outPath': outPath,
+  };
+
+  static _AndroidRecorderRecord? fromJson(Object? raw) {
+    if (raw is! Map) return null;
+    final serial = raw['serial'];
+    final pid = raw['pid'];
+    final remotePath = raw['remotePath'];
+    final outPath = raw['outPath'];
+    if (serial is! String ||
+        pid is! int ||
+        remotePath is! String ||
+        outPath is! String) {
+      return null;
+    }
+    return _AndroidRecorderRecord(
+      serial: serial,
+      pid: pid,
+      remotePath: remotePath,
+      outPath: outPath,
+    );
+  }
+}
+
+File _androidRecorderFile(String serial) {
+  final paths = resolveStatePaths();
+  return File(p.join(paths.baseDir, 'android-recorders', '$serial.json'));
+}
+
+Future<_AndroidRecorderRecord?> _readAndroidRecorder(String serial) async {
+  final file = _androidRecorderFile(serial);
+  if (!await file.exists()) return null;
+  try {
+    return _AndroidRecorderRecord.fromJson(
+      jsonDecode(await file.readAsString()),
+    );
+  } on FormatException {
+    return null;
+  }
+}
+
+Future<void> _writeAndroidRecorder(_AndroidRecorderRecord record) async {
+  final file = _androidRecorderFile(record.serial);
+  await file.parent.create(recursive: true);
+  await file.writeAsString(jsonEncode(record.toJson()));
+}
+
+Future<void> _deleteAndroidRecorder(String serial) async {
+  final file = _androidRecorderFile(serial);
+  if (await file.exists()) {
+    try {
+      await file.delete();
+    } catch (_) {}
+  }
 }
 
 DeviceRotation _toDeviceRotation(BackendDeviceOrientation o) => switch (o) {
