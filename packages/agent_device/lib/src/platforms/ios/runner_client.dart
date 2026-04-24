@@ -548,15 +548,37 @@ class IosRunnerClient {
     return _commandUrl(host, s.port);
   }
 
+  /// Set `AGENT_DEVICE_IOS_RUNNER_DEBUG=1` to log every runner HTTP
+  /// request/response to stderr. Handy when chasing device-side
+  /// connectivity issues over the CoreDevice tunnel.
+  static bool get _debug =>
+      Platform.environment['AGENT_DEVICE_IOS_RUNNER_DEBUG'] == '1';
+
   static Future<RunnerResponse> _postCommand(
     String url,
     Map<String, Object?> body, {
     required Duration timeout,
   }) async {
+    // Disable HTTP keep-alive on the tunnel. When the CoreDevice tunnel
+    // is in play the response can get stuck if the socket stays open
+    // after the reply — some tunnel configurations don't deliver the
+    // last buffered chunks until the peer closes the connection.
+    // `Connection: close` + per-client instance + closing in finally
+    // forces TCP close on each request so we always see a complete
+    // reply or a timeout, never a hung stream.
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
+    final cmdLabel = body['command'] ?? '<no command>';
+    final startedAt = DateTime.now();
+    if (_debug) {
+      stderr.writeln(
+        '[runner] POST $url  command=$cmdLabel  timeout=${timeout.inSeconds}s',
+      );
+    }
     try {
       final req = await client.postUrl(Uri.parse(url)).timeout(timeout);
       req.headers.set('Content-Type', 'application/json');
+      req.headers.set('Connection', 'close');
+      req.persistentConnection = false;
       final encoded = utf8.encode(jsonEncode(body));
       req.contentLength = encoded.length;
       req.add(encoded);
@@ -568,6 +590,12 @@ class IosRunnerClient {
           })
           .timeout(timeout);
       final text = utf8.decode(bytes);
+      if (_debug) {
+        final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
+        stderr.writeln(
+          '[runner] ← ${res.statusCode}  ${bytes.length} bytes  ${elapsed}ms',
+        );
+      }
       final decoded = jsonDecode(text);
       if (decoded is! Map) {
         throw AppError(
@@ -584,6 +612,12 @@ class IosRunnerClient {
         return RunnerResponse(ok: false, errorMessage: message);
       }
       return RunnerResponse(ok: true, data: decoded['data']);
+    } catch (e) {
+      if (_debug) {
+        final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
+        stderr.writeln('[runner] ✗ ${elapsed}ms  $e');
+      }
+      rethrow;
     } finally {
       client.close(force: true);
     }
