@@ -285,6 +285,10 @@ class IosRunnerClient {
         : 'platform=iOS Simulator,id=$udid';
     // xcodebuild writes to stdout; redirect via `sh -c '… > log 2>&1'`
     // so the detached subprocess has nowhere for the parent to drain.
+    _debugLog(
+      '[runner] launching xcodebuild  kind=${kind.wire}  udid=$udid  '
+      'port=$port  xctestrun=$xctestrunPath',
+    );
     final proc = await runCmdDetached('sh', [
       '-c',
       'exec xcodebuild test-without-building '
@@ -295,6 +299,7 @@ class IosRunnerClient {
           '-test-timeouts-enabled NO '
           '> ${_shq(logPath)} 2>&1',
     ], const ExecDetachedOptions());
+    _debugLog('[runner] xcodebuild pid=${proc.pid}  log=$logPath');
 
     // Resolve the tunnel IP in the background while we probe. Only
     // needed on device; null for simulator.
@@ -308,9 +313,12 @@ class IosRunnerClient {
     // tunnel can get stuck on some systems.
     final deadline = DateTime.now().add(startupTimeout);
     String? tunnelIp;
+    var probeCount = 0;
     while (DateTime.now().isBefore(deadline)) {
+      probeCount += 1;
       if (kind == IosRunnerKind.simulator) {
         if (await _probePort(port)) {
+          _debugLog('[runner] ✓ simulator listener up on :$port');
           return IosRunnerSession(
             udid: udid,
             port: port,
@@ -323,10 +331,20 @@ class IosRunnerClient {
       } else {
         tunnelIp ??= await tunnelIpFuture;
         if (tunnelIp != null) {
+          if (probeCount == 1 || probeCount % 10 == 0) {
+            _debugLog(
+              '[runner] probe #$probeCount  '
+              'endpoint=${_commandUrl(tunnelIp, port)}',
+            );
+          }
           if (await _probeRunnerEndpoint(
             _commandUrl(tunnelIp, port),
             timeout: const Duration(seconds: 2),
           )) {
+            _debugLog(
+              '[runner] ✓ device listener up at '
+              '${_commandUrl(tunnelIp, port)}  (probe #$probeCount)',
+            );
             return IosRunnerSession(
               udid: udid,
               port: port,
@@ -337,6 +355,8 @@ class IosRunnerClient {
               tunnelIp: tunnelIp,
             );
           }
+        } else if (probeCount == 1 || probeCount % 20 == 0) {
+          _debugLog('[runner] probe #$probeCount  tunnel IP not resolved yet');
         }
       }
       await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -549,10 +569,21 @@ class IosRunnerClient {
   }
 
   /// Set `AGENT_DEVICE_IOS_RUNNER_DEBUG=1` to log every runner HTTP
-  /// request/response to stderr. Handy when chasing device-side
-  /// connectivity issues over the CoreDevice tunnel.
+  /// request/response AND every launch-phase probe to both stdout and
+  /// stderr. Handy when chasing device-side connectivity issues over
+  /// the CoreDevice tunnel.
   static bool get _debug =>
       Platform.environment['AGENT_DEVICE_IOS_RUNNER_DEBUG'] == '1';
+
+  /// Write [line] to both stdout and stderr when debug is on so the
+  /// user sees diagnostics regardless of whether they're piping stderr
+  /// away (e.g. `2>/dev/null`, or reading only stdout from a subprocess
+  /// capture).
+  static void _debugLog(String line) {
+    if (!_debug) return;
+    stderr.writeln(line);
+    stdout.writeln(line);
+  }
 
   static Future<RunnerResponse> _postCommand(
     String url,
@@ -569,11 +600,9 @@ class IosRunnerClient {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
     final cmdLabel = body['command'] ?? '<no command>';
     final startedAt = DateTime.now();
-    if (_debug) {
-      stderr.writeln(
-        '[runner] POST $url  command=$cmdLabel  timeout=${timeout.inSeconds}s',
-      );
-    }
+    _debugLog(
+      '[runner] POST $url  command=$cmdLabel  timeout=${timeout.inSeconds}s',
+    );
     try {
       final req = await client.postUrl(Uri.parse(url)).timeout(timeout);
       req.headers.set('Content-Type', 'application/json');
@@ -590,12 +619,10 @@ class IosRunnerClient {
           })
           .timeout(timeout);
       final text = utf8.decode(bytes);
-      if (_debug) {
-        final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
-        stderr.writeln(
-          '[runner] ← ${res.statusCode}  ${bytes.length} bytes  ${elapsed}ms',
-        );
-      }
+      final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
+      _debugLog(
+        '[runner] ← ${res.statusCode}  ${bytes.length} bytes  ${elapsed}ms',
+      );
       final decoded = jsonDecode(text);
       if (decoded is! Map) {
         throw AppError(
@@ -613,10 +640,8 @@ class IosRunnerClient {
       }
       return RunnerResponse(ok: true, data: decoded['data']);
     } catch (e) {
-      if (_debug) {
-        final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
-        stderr.writeln('[runner] ✗ ${elapsed}ms  $e');
-      }
+      final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
+      _debugLog('[runner] ✗ ${elapsed}ms  $e');
       rethrow;
     } finally {
       client.close(force: true);
