@@ -24,7 +24,7 @@ void main() {
       if (await tmp.exists()) await tmp.delete(recursive: true);
     });
 
-    Future<AgentDevice> openDevice(_RecordingBackend backend) async {
+    Future<AgentDevice> openDevice(Backend backend) async {
       return AgentDevice.open(
         backend: backend,
         selector: const DeviceSelector(serial: 'mock-serial'),
@@ -140,6 +140,51 @@ void main() {
       expect(result.metadata!.platform, 'ios');
       expect(result.metadata!.timeoutMs, 5000);
       expect(result.metadata!.retries, 2);
+    });
+
+    test('replayUpdate heals a failing click + rewrites the script', () async {
+      // Backend that fails the first click but returns a matching snapshot
+      // so heal can rewrite to a fresh selector on retry.
+      final backend = _HealBackend();
+      final device = await openDevice(backend);
+      final script = File('${tmp.path}/heal.ad');
+      await script.writeAsString(
+        'context platform=android\nclick id=stale-id\n',
+      );
+
+      final result = await runReplayScript(
+        scriptPath: script.path,
+        device: device,
+        replayUpdate: true,
+      );
+
+      expect(result.ok, isTrue, reason: result.steps.toString());
+      expect(result.healed, 1);
+      expect(result.rewritten, isTrue);
+      expect(result.steps.first.healed, isTrue);
+      // Script file was rewritten with healed selector.
+      final rewritten = await script.readAsString();
+      expect(rewritten, contains('context platform=android'));
+      expect(
+        rewritten,
+        isNot(contains('id=stale-id')),
+        reason: 'Stale selector should be replaced after heal.',
+      );
+      expect(rewritten, contains('id='));
+    });
+
+    test('replayUpdate=false still fails fast', () async {
+      final backend = _HealBackend();
+      final device = await openDevice(backend);
+      final script = File('${tmp.path}/fail-fast.ad');
+      await script.writeAsString('click id=stale-id\n');
+      final result = await runReplayScript(
+        scriptPath: script.path,
+        device: device,
+      );
+      expect(result.ok, isFalse);
+      expect(result.healed, 0);
+      expect(result.rewritten, isFalse);
     });
 
     test('rejects JSON payloads', () async {
@@ -272,6 +317,59 @@ class _RecordingBackend extends Backend {
   ) async {
     _record('captureSnapshot', {'options': options});
     return const BackendSnapshotResult(nodes: [], truncated: false);
+  }
+
+  @override
+  Future<List<BackendDeviceInfo>> listDevices(
+    BackendCommandContext ctx, [
+    BackendDeviceFilter? filter,
+  ]) async => [
+    const BackendDeviceInfo(
+      id: 'mock-serial',
+      name: 'mock',
+      platform: AgentDeviceBackendPlatform.android,
+    ),
+  ];
+}
+
+/// Backend that fails the first tap (the original click fails), returns a
+/// snapshot containing the target element so heal can re-resolve, and
+/// succeeds on the retry. Exercised by the replayUpdate unit test.
+class _HealBackend extends Backend {
+  int _tapCalls = 0;
+
+  @override
+  AgentDeviceBackendPlatform get platform => AgentDeviceBackendPlatform.android;
+
+  @override
+  Future<BackendActionResult> tap(
+    BackendCommandContext ctx,
+    Point point,
+    BackendTapOptions? options,
+  ) async {
+    _tapCalls += 1;
+    if (_tapCalls == 1) throw Exception('injected failure on initial tap');
+    return null;
+  }
+
+  @override
+  Future<BackendSnapshotResult> captureSnapshot(
+    BackendCommandContext ctx,
+    BackendSnapshotOptions? options,
+  ) async {
+    // One node whose id happens to be "stale-id" (matches the script's
+    // selector). Heal will ask for a rebuild from this node and retry.
+    final node = const SnapshotNode(
+      index: 0,
+      ref: '@e0',
+      identifier: 'stale-id',
+      label: 'Login',
+      type: 'Button',
+      role: 'Button',
+      rect: Rect(x: 10, y: 10, width: 100, height: 40),
+      hittable: true,
+    );
+    return BackendSnapshotResult(nodes: [node], truncated: false);
   }
 
   @override

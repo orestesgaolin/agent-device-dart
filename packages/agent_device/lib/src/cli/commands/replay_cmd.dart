@@ -15,13 +15,22 @@ import '../base_command.dart';
 
 class ReplayCommand extends AgentDeviceCommand {
   ReplayCommand() {
-    argParser.addOption(
-      'artifact-dir',
-      help:
-          'Directory to write per-step artifacts (screenshots, snapshot '
-          'dumps). Defaults to <state-dir>/test-artifacts/<script-name>/'
-          '<timestamp>/.',
-    );
+    argParser
+      ..addOption(
+        'artifact-dir',
+        help:
+            'Directory to write per-step artifacts (screenshots, snapshot '
+            'dumps). Defaults to <state-dir>/test-artifacts/<script-name>/'
+            '<timestamp>/.',
+      )
+      ..addFlag(
+        'replay-update',
+        help:
+            'When a selector-backed step fails, attempt to heal it against '
+            'a fresh snapshot and, on success, rewrite the .ad file so '
+            'the next run uses the healed selectors.',
+        negatable: false,
+      );
   }
 
   @override
@@ -47,10 +56,12 @@ class ReplayCommand extends AgentDeviceCommand {
     }
     final device = await openAgentDevice();
     final artifactDir = _resolveArtifactDir(scriptPath);
+    final replayUpdate = argResults?['replay-update'] == true;
     final result = await runReplayScript(
       scriptPath: scriptPath,
       device: device,
       artifactDir: artifactDir,
+      replayUpdate: replayUpdate,
       onStep: (step) {
         if (!asJson) {
           final marker = step.ok ? 'ok' : 'FAIL';
@@ -95,6 +106,13 @@ class TestCommand extends AgentDeviceCommand {
         help:
             'Root directory for per-script artifacts. Defaults to '
             '<state-dir>/test-artifacts/.',
+      )
+      ..addFlag(
+        'replay-update',
+        help:
+            'Self-heal failing selector steps on a fresh snapshot and '
+            'write healed actions back to the .ad file.',
+        negatable: false,
       );
   }
 
@@ -116,6 +134,7 @@ class TestCommand extends AgentDeviceCommand {
     final cliRetries =
         int.tryParse(argResults?['retries'] as String? ?? '0') ?? 0;
     final rootDir = argResults?['artifact-dir'] as String?;
+    final replayUpdate = argResults?['replay-update'] == true;
 
     final scripts = await _resolveScripts(positionals);
     if (scripts.isEmpty) {
@@ -145,6 +164,7 @@ class TestCommand extends AgentDeviceCommand {
             scriptPath: scriptPath,
             device: device,
             artifactDir: artifactDir,
+            replayUpdate: replayUpdate,
             onStep: (step) {
               if (!asJson) {
                 final marker = step.ok ? 'ok' : 'FAIL';

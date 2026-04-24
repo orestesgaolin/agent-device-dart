@@ -1,12 +1,18 @@
 // Phase 10 replay runner — execute a parsed `.ad` script against a live
-// [AgentDevice], step by step. Mirrors the MVP slice of
-// `agent-device/src/daemon/handlers/session-replay-runtime.ts` without
-// the healing / self-updating path (that arrives in a later Phase 10
-// follow-up alongside record-trace and the observability handlers).
+// [AgentDevice], step by step. Ports the core of
+// `agent-device/src/daemon/handlers/session-replay-runtime.ts`: dispatch
+// actions, stop at the first failure, optionally self-heal + rewrite.
 //
 // The dispatch table keeps things explicit: each supported action maps
 // to a concrete [AgentDevice] method. Unknown actions surface as a
 // structured failure so scripts fail loud rather than silently no-op.
+// When `replayUpdate` is true, selector-backed failures trigger a fresh
+// snapshot + rewrite via `healReplayAction`, and the healed actions are
+// serialized back to the source script.
+//
+// Still deferred (follow-up commits): record-trace + video capture,
+// app-log / network-log observability, runtime-hint / metro session
+// bootstrap.
 library;
 
 import 'dart:async';
@@ -16,10 +22,13 @@ import 'dart:io';
 import 'package:agent_device/src/backend/backend.dart';
 import 'package:agent_device/src/runtime/agent_device.dart';
 import 'package:agent_device/src/runtime/interaction_target.dart';
+import 'package:agent_device/src/snapshot/snapshot.dart' show SnapshotNode;
 import 'package:agent_device/src/utils/errors.dart';
 import 'package:path/path.dart' as p;
 
-import 'script.dart' show parseReplayScript, readReplayScriptMetadata;
+import 'heal.dart';
+import 'script.dart'
+    show parseReplayScript, readReplayScriptMetadata, serializeReplayScript;
 import 'script.dart' as script show ReplayScriptMetadata;
 import 'session_action.dart';
 
@@ -32,6 +41,7 @@ class ReplayStepResult {
   final int index;
   final SessionAction action;
   final bool ok;
+  final bool healed;
   final String? errorCode;
   final String? errorMessage;
   final List<String> artifactPaths;
@@ -42,6 +52,7 @@ class ReplayStepResult {
     required this.action,
     required this.ok,
     required this.durationMs,
+    this.healed = false,
     this.errorCode,
     this.errorMessage,
     this.artifactPaths = const [],
@@ -52,6 +63,7 @@ class ReplayStepResult {
     'command': action.command,
     'positionals': action.positionals,
     'ok': ok,
+    if (healed) 'healed': true,
     'durationMs': durationMs,
     if (errorCode != null) 'errorCode': errorCode,
     if (errorMessage != null) 'errorMessage': errorMessage,
@@ -67,12 +79,21 @@ class ReplayRunResult {
   final int durationMs;
   final ReplayScriptMetadata? metadata;
 
+  /// Number of steps that succeeded only after a heal rewrite.
+  final int healed;
+
+  /// True when `replayUpdate=true` was requested and the heal rewrites
+  /// were persisted back to the source script.
+  final bool rewritten;
+
   const ReplayRunResult({
     required this.scriptPath,
     required this.steps,
     required this.ok,
     required this.durationMs,
     this.metadata,
+    this.healed = 0,
+    this.rewritten = false,
   });
 
   int get passed => steps.where((s) => s.ok).length;
@@ -84,18 +105,26 @@ class ReplayRunResult {
     'durationMs': durationMs,
     'passed': passed,
     'failed': failed,
+    if (healed > 0) 'healed': healed,
+    if (rewritten) 'rewritten': true,
     if (metadata != null) 'metadata': metadata!.toJson(),
     'steps': steps.map((s) => s.toJson()).toList(),
   };
 }
 
-/// Replay [scriptPath] against [device]. Stops at the first failing step
-/// (matches TS replay default where `replayUpdate=false`). Emits one
-/// line per step to [log] if provided, for human-mode progress.
+/// Replay [scriptPath] against [device].
+///
+/// Default behavior stops at the first failing step (matches TS replay
+/// default). When [replayUpdate] is `true`, selector-backed failing
+/// steps (`click`/`press`/`fill`/`get`/`is`/`wait`) try to self-heal
+/// against a fresh snapshot; on a successful heal the step is retried
+/// once. If any heal succeeds, the rewritten actions are serialized
+/// back to [scriptPath] so the next run uses the healed selectors.
 Future<ReplayRunResult> runReplayScript({
   required String scriptPath,
   required AgentDevice device,
   String? artifactDir,
+  bool replayUpdate = false,
   void Function(ReplayStepResult step)? onStep,
 }) async {
   final sw = Stopwatch()..start();
@@ -119,8 +148,9 @@ Future<ReplayRunResult> runReplayScript({
     await Directory(effectiveArtifactDir).create(recursive: true);
   }
 
+  int healed = 0;
   for (var i = 0; i < actions.length; i++) {
-    final action = actions[i];
+    var action = actions[i];
     if (action.command == 'replay') continue; // nested replay not supported
     final stepSw = Stopwatch()..start();
     try {
@@ -141,6 +171,51 @@ Future<ReplayRunResult> runReplayScript({
       steps.add(step);
       if (onStep != null) onStep(step);
     } catch (e) {
+      // If healing is off, fail fast. Otherwise try one heal + retry.
+      final healedAction = replayUpdate
+          ? await _tryHeal(action: action, device: device)
+          : null;
+      if (healedAction != null) {
+        try {
+          final artifacts = await _dispatch(
+            action: healedAction,
+            device: device,
+            artifactDir: effectiveArtifactDir,
+            index: i,
+          );
+          stepSw.stop();
+          actions[i] = healedAction;
+          action = healedAction;
+          healed += 1;
+          final step = ReplayStepResult(
+            index: i,
+            action: healedAction,
+            ok: true,
+            healed: true,
+            durationMs: stepSw.elapsedMilliseconds,
+            artifactPaths: artifacts,
+          );
+          steps.add(step);
+          if (onStep != null) onStep(step);
+          continue;
+        } catch (e2) {
+          stepSw.stop();
+          final code = e2 is AppError ? e2.code : AppErrorCodes.commandFailed;
+          final message = e2 is AppError ? e2.message : e2.toString();
+          final step = ReplayStepResult(
+            index: i,
+            action: healedAction,
+            ok: false,
+            durationMs: stepSw.elapsedMilliseconds,
+            errorCode: code,
+            errorMessage: 'heal attempt also failed: $message',
+          );
+          steps.add(step);
+          ok = false;
+          if (onStep != null) onStep(step);
+          break;
+        }
+      }
       stepSw.stop();
       final code = e is AppError ? e.code : AppErrorCodes.commandFailed;
       final message = e is AppError ? e.message : e.toString();
@@ -159,6 +234,15 @@ Future<ReplayRunResult> runReplayScript({
     }
   }
 
+  var rewritten = false;
+  if (replayUpdate && healed > 0) {
+    final contextLine = _extractContextLine(text);
+    await File(
+      resolved,
+    ).writeAsString(serializeReplayScript(actions, contextLine: contextLine));
+    rewritten = true;
+  }
+
   sw.stop();
   return ReplayRunResult(
     scriptPath: resolved,
@@ -166,7 +250,40 @@ Future<ReplayRunResult> runReplayScript({
     ok: ok,
     durationMs: sw.elapsedMilliseconds,
     metadata: metadata,
+    healed: healed,
+    rewritten: rewritten,
   );
+}
+
+/// First line of [text] if it's a `context ...` header, otherwise null.
+/// Preserves the original context when we rewrite the script so users
+/// don't lose their platform / retries / timeout metadata on heal.
+String? _extractContextLine(String text) {
+  final firstLineEnd = text.indexOf('\n');
+  final first = firstLineEnd == -1 ? text : text.substring(0, firstLineEnd);
+  final trimmed = first.trim();
+  return trimmed.startsWith('context ') ? trimmed : null;
+}
+
+/// Take a fresh snapshot and try to rewrite [action] against the current
+/// tree. Returns null if nothing healed or snapshot fails.
+Future<SessionAction?> _tryHeal({
+  required SessionAction action,
+  required AgentDevice device,
+}) async {
+  try {
+    final snap = await device.snapshot();
+    final rawNodes = snap.nodes ?? const [];
+    final nodes = rawNodes.whereType<SnapshotNode>().toList();
+    if (nodes.isEmpty) return null;
+    return healReplayAction(
+      action: action,
+      nodes: nodes,
+      platform: device.backend.platform,
+    );
+  } catch (_) {
+    return null;
+  }
 }
 
 /// Dispatch a single [SessionAction] to its matching [AgentDevice] call.
