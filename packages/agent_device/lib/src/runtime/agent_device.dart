@@ -385,6 +385,21 @@ class AgentDevice {
   }
 
   // =========================================================================
+  // Diagnostics
+  // =========================================================================
+
+  /// Dump recent device logs filtered to the session's current app.
+  /// [since] can be `30s` / `5m` / `1h` for a relative window, or an
+  /// absolute timestamp (`@<epoch>` or `YYYY-MM-DD HH:MM:SS`). iOS
+  /// requires an open app; Android matches the backend's default.
+  Future<BackendReadLogsResult> readLogs({String? since, int? limit}) async {
+    return backend.readLogs(
+      await _ctx(),
+      BackendReadLogsOptions(since: since, limit: limit),
+    );
+  }
+
+  // =========================================================================
   // Recording
   // =========================================================================
 

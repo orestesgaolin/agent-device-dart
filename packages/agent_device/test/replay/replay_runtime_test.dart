@@ -146,6 +146,28 @@ void main() {
       expect(result.steps.first.errorMessage, contains('injected'));
     });
 
+    test('failure auto-dumps recent logs into the artifact dir', () async {
+      final backend = _RecordingBackend(failOn: 'openApp');
+      final device = await openDevice(backend);
+      final script = File('${tmp.path}/failwithlogs.ad');
+      await script.writeAsString('open com.example.foo\n');
+      final artifactDir = '${tmp.path}/artifacts';
+
+      final result = await runReplayScript(
+        scriptPath: script.path,
+        device: device,
+        artifactDir: artifactDir,
+      );
+
+      expect(result.ok, isFalse);
+      // The failing step should carry a log artifact path.
+      expect(result.steps.first.artifactPaths, isNotEmpty);
+      final logFile = File(result.steps.first.artifactPaths.first);
+      expect(await logFile.exists(), isTrue);
+      final contents = await logFile.readAsString();
+      expect(contents, contains('mock log line'));
+    });
+
     test('unknown command surfaces UNSUPPORTED_OPERATION', () async {
       final backend = _RecordingBackend();
       final device = await openDevice(backend);
@@ -380,6 +402,18 @@ class _RecordingBackend extends Backend {
   ) async {
     _record('stopRecording', {'outPath': options?.outPath});
     return BackendRecordingResult(path: options?.outPath);
+  }
+
+  @override
+  Future<BackendReadLogsResult> readLogs(
+    BackendCommandContext ctx,
+    BackendReadLogsOptions? options,
+  ) async {
+    _record('readLogs', {'since': options?.since});
+    return const BackendReadLogsResult(
+      entries: [BackendLogEntry(message: 'mock log line')],
+      backend: 'mock',
+    );
   }
 
   @override

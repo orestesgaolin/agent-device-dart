@@ -219,6 +219,19 @@ Future<ReplayRunResult> runReplayScript({
       stepSw.stop();
       final code = e is AppError ? e.code : AppErrorCodes.commandFailed;
       final message = e is AppError ? e.message : e.toString();
+      // Best-effort app-log dump into the artifact dir on failure so
+      // postmortem has something to chew on. Silently ignored if the
+      // backend doesn't support readLogs (Android today) or there's no
+      // open app.
+      final failureArtifacts = <String>[];
+      if (effectiveArtifactDir != null) {
+        final logPath = await _dumpFailureLogs(
+          device: device,
+          artifactDir: effectiveArtifactDir,
+          index: i,
+        );
+        if (logPath != null) failureArtifacts.add(logPath);
+      }
       final step = ReplayStepResult(
         index: i,
         action: action,
@@ -226,6 +239,7 @@ Future<ReplayRunResult> runReplayScript({
         durationMs: stepSw.elapsedMilliseconds,
         errorCode: code,
         errorMessage: message,
+        artifactPaths: failureArtifacts,
       );
       steps.add(step);
       ok = false;
@@ -263,6 +277,27 @@ String? _extractContextLine(String text) {
   final first = firstLineEnd == -1 ? text : text.substring(0, firstLineEnd);
   final trimmed = first.trim();
   return trimmed.startsWith('context ') ? trimmed : null;
+}
+
+/// Best-effort dump of the last ~30s of app logs into the artifact dir
+/// for a failed step. Returns the output path on success, or null if the
+/// backend doesn't support log capture (e.g. no app is open, or the
+/// platform isn't wired).
+Future<String?> _dumpFailureLogs({
+  required AgentDevice device,
+  required String artifactDir,
+  required int index,
+}) async {
+  try {
+    final res = await device.readLogs(since: '30s');
+    final text = res.entries.map((e) => e.message).join('\n');
+    final out = File(p.join(artifactDir, 'step-${index + 1}-logs.txt'));
+    await out.parent.create(recursive: true);
+    await out.writeAsString(text.isEmpty ? '' : '$text\n');
+    return out.path;
+  } catch (_) {
+    return null;
+  }
 }
 
 /// Take a fresh snapshot and try to rewrite [action] against the current

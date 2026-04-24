@@ -13,6 +13,7 @@ import 'package:agent_device/src/backend/backend.dart';
 import 'package:agent_device/src/runtime/paths.dart';
 import 'package:agent_device/src/snapshot/snapshot.dart';
 import 'package:agent_device/src/utils/errors.dart';
+import 'package:agent_device/src/utils/exec.dart';
 import 'package:path/path.dart' as p;
 
 import 'app_lifecycle.dart';
@@ -402,6 +403,100 @@ class IosBackend extends Backend {
     } catch (_) {
       return null;
     }
+  }
+
+  // =========================================================================
+  // Diagnostics: Logs (one-shot)
+  // =========================================================================
+
+  /// Dump recent os_log output filtered to the session's app bundle id.
+  /// Simulator only — shells out to `xcrun simctl spawn [udid] log show
+  /// --predicate ...`. Physical-device logs (`xcrun devicectl device log
+  /// stream`) are deferred until streaming lands.
+  @override
+  Future<BackendReadLogsResult> readLogs(
+    BackendCommandContext ctx,
+    BackendReadLogsOptions? options,
+  ) async {
+    final udid = _udid(ctx);
+    final kind = await _resolveKind(udid);
+    if (kind == 'device') {
+      throw AppError(
+        AppErrorCodes.unsupportedOperation,
+        'iOS physical-device log capture is not yet wired. Use a simulator '
+        'or stream via `xcrun devicectl device log stream --device $udid`.',
+      );
+    }
+    final bundleId = ctx.appBundleId ?? ctx.appId;
+    if (bundleId == null || bundleId.isEmpty) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'iOS readLogs requires an open app. Run `agent-device open <bundleId>` '
+        'first so we know which app\'s logs to filter to.',
+      );
+    }
+    final predicate = [
+      'subsystem == "$bundleId"',
+      'processImagePath ENDSWITH[c] "/$bundleId"',
+      'senderImagePath ENDSWITH[c] "/$bundleId"',
+    ].join(' OR ');
+    final args = <String>[
+      'simctl',
+      'spawn',
+      udid,
+      'log',
+      'show',
+      '--style',
+      'compact',
+      '--info',
+      '--predicate',
+      predicate,
+    ];
+    final since = options?.since?.trim();
+    // `--last` values are of the form <digits><s|m|h|d>. Anything else we
+    // pass through as `--start` so callers can hand in `@<epoch>` or an
+    // ISO timestamp.
+    if (since != null && since.isNotEmpty) {
+      if (RegExp(r'^\d+[smhd]$').hasMatch(since)) {
+        args.addAll(['--last', since]);
+      } else {
+        args.addAll(['--start', since]);
+      }
+    } else {
+      args.addAll(['--last', '5m']);
+    }
+    final r = await runCmd(
+      'xcrun',
+      args,
+      const ExecOptions(allowFailure: true, timeoutMs: 15000),
+    );
+    if (r.exitCode != 0) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'simctl log show failed (exit ${r.exitCode}).',
+        details: {
+          'stderr': r.stderr,
+          'stdout': r.stdout,
+          'exitCode': r.exitCode,
+        },
+      );
+    }
+    final rawLines = r.stdout.split('\n');
+    final entries = <BackendLogEntry>[];
+    for (final raw in rawLines) {
+      final line = raw.trimRight();
+      if (line.trim().isEmpty) continue;
+      // `log show --style compact` prints a fixed header line once; skip it.
+      if (line.startsWith('Timestamp               Ty Process[PID:TID]')) {
+        continue;
+      }
+      entries.add(BackendLogEntry(message: line));
+    }
+    final limit = options?.limit;
+    final trimmed = (limit != null && limit > 0 && entries.length > limit)
+        ? entries.sublist(entries.length - limit)
+        : entries;
+    return BackendReadLogsResult(entries: trimmed, backend: 'ios-simulator');
   }
 
   @override
