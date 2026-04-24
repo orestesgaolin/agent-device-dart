@@ -10,12 +10,20 @@
 // `127.0.0.1:<port>` directly because the sim shares the host network
 // stack.
 //
-// Physical device: the runner listens inside the device; we reach it
-// over the CoreDevice USB tunnel using the IPv6 address returned by
-// `xcrun devicectl device info details`. On device we hit
-// `http://[<tunnelIp>]:<port>/command` first and fall back to loopback
-// (which shouldn't succeed — kept only so stale records don't hang
-// forever on a port probe).
+// Physical device: the runner's TCP port inside the device is bridged
+// to the host over usbmux via `iproxy <port>:<port> -u <UDID>` (from
+// libimobiledevice). iproxy is spawned detached alongside xcodebuild
+// and listens on 127.0.0.1:<port> on the host, forwarding to the same
+// port on the device. HTTP commands then hit `127.0.0.1:<port>` on
+// both sim and device — identical transport from the Dart side.
+//
+// We deliberately do NOT use CoreDevice's IPv6 tunnel
+// (`fd3f:c3d3:3af1::1`) that `xcrun devicectl device info details`
+// surfaces: arbitrary app-bound ports aren't consistently routed
+// through it because NECP socket registration
+// (`SO_NECP_LISTENUUID`) fails inside the UITest sandbox. The TS
+// upstream hits the tunnel IP and works on some Xcode versions but
+// not on newer ones; iproxy is rock-solid and has been since iOS 3.
 library;
 
 import 'dart:convert';
@@ -56,10 +64,12 @@ class IosRunnerSession {
   final String logPath;
   final IosRunnerKind kind;
 
-  /// IPv6 CoreDevice tunnel IP. Populated for [IosRunnerKind.device] on
-  /// launch, null for simulators. Re-resolved on `send` if the cached
-  /// value stops working.
-  final String? tunnelIp;
+  /// Host-side usbmux proxy PID for device sessions. We spawn
+  /// `iproxy [port]:[port] -u [UDID]` alongside xcodebuild so the host
+  /// can reach the device's runner port via `127.0.0.1:[port]`. Null
+  /// for simulator sessions (they share the host network stack
+  /// directly).
+  final int? iproxyPid;
 
   const IosRunnerSession({
     required this.udid,
@@ -68,7 +78,7 @@ class IosRunnerSession {
     required this.xctestrunPath,
     required this.logPath,
     this.kind = IosRunnerKind.simulator,
-    this.tunnelIp,
+    this.iproxyPid,
   });
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -78,7 +88,7 @@ class IosRunnerSession {
     'xctestrunPath': xctestrunPath,
     'logPath': logPath,
     'kind': kind.wire,
-    if (tunnelIp != null) 'tunnelIp': tunnelIp,
+    if (iproxyPid != null) 'iproxyPid': iproxyPid,
   };
 
   static IosRunnerSession? fromJson(Object? raw) {
@@ -102,19 +112,9 @@ class IosRunnerSession {
       xctestrunPath: xctr,
       logPath: log,
       kind: IosRunnerKind.parse(raw['kind'] as String?),
-      tunnelIp: raw['tunnelIp'] as String?,
+      iproxyPid: raw['iproxyPid'] as int?,
     );
   }
-
-  IosRunnerSession copyWith({String? tunnelIp}) => IosRunnerSession(
-    udid: udid,
-    port: port,
-    xcodebuildPid: xcodebuildPid,
-    xctestrunPath: xctestrunPath,
-    logPath: logPath,
-    kind: kind,
-    tunnelIp: tunnelIp ?? this.tunnelIp,
-  );
 }
 
 /// Launch + manage the XCUITest runner.
@@ -301,18 +301,26 @@ class IosRunnerClient {
     ], const ExecDetachedOptions());
     _debugLog('[runner] xcodebuild pid=${proc.pid}  log=$logPath');
 
-    // Resolve the tunnel IP in the background while we probe. Only
-    // needed on device; null for simulator.
-    final tunnelIpFuture = kind == IosRunnerKind.device
-        ? resolveDeviceTunnelIp(udid, timeoutMs: 8000)
-        : Future<String?>.value(null);
+    // On device, bridge the runner's TCP port over usbmux via
+    // `iproxy <port>:<port> -u <UDID>`. That's the same transport
+    // Xcode itself uses under the hood — rock-solid compared to
+    // CoreDevice's IPv6 tunnel, which intermittently refuses to
+    // route arbitrary app-bound ports (SO_NECP_LISTENUUID
+    // registration fails inside the UITest sandbox, so the listener
+    // isn't exposed through the CoreDevice NE). iproxy listens on
+    // 127.0.0.1:<port> and forwards every TCP connection to the
+    // device on the same port; the runner gets the same port number
+    // on the device side via our xctestrun env var, so a single
+    // number serves both ends.
+    int? iproxyPid;
+    if (kind == IosRunnerKind.device) {
+      iproxyPid = await _spawnIproxy(udid: udid, port: port);
+    }
 
-    // Poll until the HTTP listener is up. For simulator we probe
-    // loopback TCP; for device we try the tunnel IP (once resolved)
-    // and do an HTTP GET/POST since raw TCP connect against the IPv6
-    // tunnel can get stuck on some systems.
+    // Poll until the HTTP listener on 127.0.0.1:<port> responds. For
+    // simulator that's the runner directly; for device that's iproxy
+    // bridging host ↔ device.
     final deadline = DateTime.now().add(startupTimeout);
-    String? tunnelIp;
     var probeCount = 0;
     while (DateTime.now().isBefore(deadline)) {
       probeCount += 1;
@@ -329,34 +337,31 @@ class IosRunnerClient {
           );
         }
       } else {
-        tunnelIp ??= await tunnelIpFuture;
-        if (tunnelIp != null) {
-          if (probeCount == 1 || probeCount % 10 == 0) {
-            _debugLog(
-              '[runner] probe #$probeCount  '
-              'endpoint=${_commandUrl(tunnelIp, port)}',
-            );
-          }
-          if (await _probeRunnerEndpoint(
-            _commandUrl(tunnelIp, port),
-            timeout: const Duration(seconds: 2),
-          )) {
-            _debugLog(
-              '[runner] ✓ device listener up at '
-              '${_commandUrl(tunnelIp, port)}  (probe #$probeCount)',
-            );
-            return IosRunnerSession(
-              udid: udid,
-              port: port,
-              xcodebuildPid: proc.pid,
-              xctestrunPath: xctestrunPath,
-              logPath: logPath,
-              kind: kind,
-              tunnelIp: tunnelIp,
-            );
-          }
-        } else if (probeCount == 1 || probeCount % 20 == 0) {
-          _debugLog('[runner] probe #$probeCount  tunnel IP not resolved yet');
+        if (probeCount == 1 || probeCount % 10 == 0) {
+          _debugLog(
+            '[runner] probe #$probeCount  '
+            'endpoint=${_commandUrl('127.0.0.1', port)}  '
+            'iproxyPid=${iproxyPid ?? '<none>'}',
+          );
+        }
+        if (await _probeRunnerEndpoint(
+          _commandUrl('127.0.0.1', port),
+          timeout: const Duration(seconds: 2),
+        )) {
+          _debugLog(
+            '[runner] ✓ device listener up at '
+            '${_commandUrl('127.0.0.1', port)} via iproxy  '
+            '(probe #$probeCount)',
+          );
+          return IosRunnerSession(
+            udid: udid,
+            port: port,
+            xcodebuildPid: proc.pid,
+            xctestrunPath: xctestrunPath,
+            logPath: logPath,
+            kind: kind,
+            iproxyPid: iproxyPid,
+          );
         }
       }
       await Future<void>.delayed(const Duration(milliseconds: 500));
@@ -379,6 +384,11 @@ class IosRunnerClient {
     try {
       Process.killPid(proc.pid, ProcessSignal.sigkill);
     } catch (_) {}
+    if (iproxyPid != null) {
+      try {
+        Process.killPid(iproxyPid, ProcessSignal.sigkill);
+      } catch (_) {}
+    }
     // XCUITest device-side config errors are recurring support pain
     // points (Developer Mode, cert-trust, device lock) — try to
     // recognize them and surface an actionable hint rather than a
@@ -393,7 +403,7 @@ class IosRunnerClient {
         'udid': udid,
         'kind': kind.wire,
         'port': port,
-        'tunnelIp': tunnelIp,
+        if (iproxyPid != null) 'iproxyPid': iproxyPid,
         'xctestrunPath': xctestrunPath,
         'logTail': tail,
         if (hint != null) 'hint': hint,
@@ -454,9 +464,37 @@ class IosRunnerClient {
     return null;
   }
 
-  /// Pull the CoreDevice tunnel IPv6 address for [udid]. Returns null on
-  /// any error (device asleep, not trusted, etc.) — callers fall back
-  /// to the deadline.
+  /// Spawn `iproxy <port>:<port> -u <udid>` detached and return its
+  /// PID. The host-side listener stays up until the process is killed;
+  /// `stop()` takes care of cleanup through the session's `iproxyPid`.
+  static Future<int> _spawnIproxy({
+    required String udid,
+    required int port,
+  }) async {
+    final iproxyLog = File(
+      p.join(
+        Directory.systemTemp.path,
+        'ad-ios-iproxy-$pid-${DateTime.now().microsecondsSinceEpoch}.log',
+      ),
+    );
+    final script =
+        'exec iproxy $port:$port -u ${_shq(udid)} '
+        '> ${_shq(iproxyLog.path)} 2>&1';
+    final proc = await runCmdDetached('sh', [
+      '-c',
+      script,
+    ], const ExecDetachedOptions());
+    _debugLog(
+      '[runner] spawned iproxy pid=${proc.pid}  '
+      '127.0.0.1:$port → device:$port  log=${iproxyLog.path}',
+    );
+    return proc.pid;
+  }
+
+  /// Pull the CoreDevice tunnel IPv6 address for [udid]. No longer used
+  /// for runner command transport (we use usbmux/iproxy which is more
+  /// reliable) but kept because other devicectl-adjacent helpers might
+  /// want it later. Returns null on any error.
   static Future<String?> resolveDeviceTunnelIp(
     String udid, {
     int timeoutMs = 8000,
@@ -561,11 +599,10 @@ class IosRunnerClient {
   }
 
   static String _sessionEndpoint(IosRunnerSession s) {
-    if (s.kind == IosRunnerKind.simulator) {
-      return _commandUrl('127.0.0.1', s.port);
-    }
-    final host = s.tunnelIp ?? '127.0.0.1';
-    return _commandUrl(host, s.port);
+    // Both simulator and device route through 127.0.0.1 — the device
+    // path sees the iproxy usbmux bridge listening there, forwarding
+    // to the same port on the device.
+    return _commandUrl('127.0.0.1', s.port);
   }
 
   /// Set `AGENT_DEVICE_IOS_RUNNER_DEBUG=1` to log every runner HTTP
@@ -649,7 +686,9 @@ class IosRunnerClient {
   }
 
   /// Best-effort graceful shutdown. Sends `{command: 'shutdown'}`,
-  /// waits briefly, then SIGKILLs the xcodebuild parent if it's still up.
+  /// waits briefly, SIGKILLs the xcodebuild parent if it's still up,
+  /// and on device sessions also tears down the iproxy bridge so the
+  /// host-side port 127.0.0.1:[port] is free for the next run.
   static Future<void> stop(IosRunnerSession session) async {
     try {
       await send(session, const {
@@ -662,21 +701,20 @@ class IosRunnerClient {
     try {
       Process.killPid(session.xcodebuildPid, ProcessSignal.sigkill);
     } catch (_) {}
+    final iproxyPid = session.iproxyPid;
+    if (iproxyPid != null) {
+      try {
+        Process.killPid(iproxyPid, ProcessSignal.sigkill);
+      } catch (_) {}
+    }
   }
 
   /// Check whether [session] is still reachable. Used by session-scoped
-  /// caching to decide whether to reuse a prior runner.
+  /// caching to decide whether to reuse a prior runner. Both simulator
+  /// and device probe `127.0.0.1:[port]` — device paths have iproxy
+  /// bridging that port to the real runner over usbmux.
   static Future<bool> isAlive(IosRunnerSession session) async {
-    if (session.kind == IosRunnerKind.simulator) {
-      return _probePort(session.port);
-    }
-    // Device: try the cached tunnel IP via HTTP (IPv6 connects over the
-    // tunnel can hang on raw TCP without the HTTP framing).
-    if (session.tunnelIp == null) return false;
-    return _probeRunnerEndpoint(
-      _commandUrl(session.tunnelIp!, session.port),
-      timeout: const Duration(seconds: 2),
-    );
+    return _probePort(session.port);
   }
 
   static Future<bool> _probePort(int port) async {
