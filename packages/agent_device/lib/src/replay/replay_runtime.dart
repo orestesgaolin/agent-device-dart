@@ -484,6 +484,49 @@ Future<List<String>> _dispatch({
       }
       return const [];
 
+    case 'record':
+      // Script-driven recording: first positional selects the sub-action
+      // (`start <outPath>` / `stop <outPath>`). Mirrors the CLI's
+      // `record start` / `record stop` split so a .ad script can fence
+      // a segment of interactions with recording around it.
+      if (positionals.isEmpty) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "record" requires a sub-action (start <outPath> | stop <outPath>).',
+        );
+      }
+      final sub = positionals.first;
+      if (sub == 'start') {
+        if (positionals.length < 2) {
+          throw AppError(
+            AppErrorCodes.invalidArgs,
+            'replay "record start" requires <outPath>.',
+          );
+        }
+        final recOutPath = positionals[1];
+        await device.startRecording(
+          recOutPath,
+          fps: (flags['fps'] as num?)?.toInt(),
+          quality: (flags['quality'] as num?)?.toInt(),
+        );
+        return const [];
+      }
+      if (sub == 'stop') {
+        if (positionals.length < 2) {
+          throw AppError(
+            AppErrorCodes.invalidArgs,
+            'replay "record stop" requires <outPath>.',
+          );
+        }
+        final recOutPath = positionals[1];
+        final res = await device.stopRecording(recOutPath);
+        return res.path == null ? const [] : [res.path!];
+      }
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'replay "record" sub-action must be "start" or "stop", got "$sub".',
+      );
+
     case 'screenshot':
       final outPath = positionals.isNotEmpty
           ? positionals.first

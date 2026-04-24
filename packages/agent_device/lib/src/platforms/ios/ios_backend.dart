@@ -272,6 +272,138 @@ class IosBackend extends Backend {
     return null;
   }
 
+  // =========================================================================
+  // Recording
+  // =========================================================================
+
+  @override
+  Future<BackendRecordingResult> startRecording(
+    BackendCommandContext ctx,
+    BackendRecordingOptions? options,
+  ) async {
+    final session = await _runner(ctx);
+    final bundleId = ctx.appBundleId ?? ctx.appId;
+    if (bundleId == null || bundleId.isEmpty) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'iOS recording requires an open app. Run `agent-device open <bundleId>` '
+        'first so the runner knows which app to capture.',
+      );
+    }
+    final outPath = options?.outPath;
+    if (outPath == null || outPath.isEmpty) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'iOS startRecording requires options.outPath.',
+      );
+    }
+    // The runner writes into its own NSTemporaryDirectory inside the
+    // simulator; only the basename of `outPath` matters over the wire.
+    // We pull the file out on stop using the runner log's
+    // `resolvedOutPath=` trace line.
+    final fileName = p.basename(outPath);
+    RunnerResponse res = await IosRunnerClient.send(session, {
+      'command': 'recordStart',
+      'outPath': fileName,
+      'appBundleId': bundleId,
+      if (options?.fps != null) 'fps': options!.fps,
+      if (options?.quality != null) 'quality': options!.quality,
+    });
+    // If the runner still had a stale recording from a prior invocation,
+    // clear it with one recordStop and retry — matches TS
+    // `isRunnerRecordingAlreadyInProgressError` recovery.
+    if (!res.ok &&
+        (res.errorMessage ?? '').contains('recording already in progress')) {
+      await IosRunnerClient.send(session, {
+        'command': 'recordStop',
+        'appBundleId': bundleId,
+      });
+      res = await IosRunnerClient.send(session, {
+        'command': 'recordStart',
+        'outPath': fileName,
+        'appBundleId': bundleId,
+        if (options?.fps != null) 'fps': options!.fps,
+        if (options?.quality != null) 'quality': options!.quality,
+      });
+    }
+    if (!res.ok) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'iOS runner recordStart failed: ${res.errorMessage ?? 'unknown'}',
+      );
+    }
+    return BackendRecordingResult(path: outPath);
+  }
+
+  @override
+  Future<BackendRecordingResult> stopRecording(
+    BackendCommandContext ctx,
+    BackendRecordingOptions? options,
+  ) async {
+    final session = await _runner(ctx);
+    final bundleId = ctx.appBundleId ?? ctx.appId;
+    final outPath = options?.outPath;
+    if (outPath == null || outPath.isEmpty) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'iOS stopRecording requires options.outPath (the same path passed to '
+        'startRecording).',
+      );
+    }
+    final res = await IosRunnerClient.send(session, {
+      'command': 'recordStop',
+      if (bundleId != null) 'appBundleId': bundleId,
+    });
+    if (!res.ok) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'iOS runner recordStop failed: ${res.errorMessage ?? 'unknown'}',
+      );
+    }
+    // Runner logs `resolvedOutPath=<abs>` — use the most recent match
+    // for this session's log so we can pull the file off the sim.
+    final resolved = await _findLatestResolvedRecordingPath(session.logPath);
+    if (resolved == null) {
+      return BackendRecordingResult(
+        path: outPath,
+        warning:
+            'Runner log did not report a resolvedOutPath. Recording file '
+            'location is unknown; check ${session.logPath}.',
+      );
+    }
+    final src = File(resolved);
+    if (!await src.exists()) {
+      return BackendRecordingResult(
+        path: outPath,
+        warning:
+            'Recording file did not appear on host at $resolved. The runner '
+            'may still be finalizing.',
+      );
+    }
+    final dst = File(outPath);
+    await dst.parent.create(recursive: true);
+    await src.copy(dst.path);
+    return BackendRecordingResult(path: outPath);
+  }
+
+  static Future<String?> _findLatestResolvedRecordingPath(
+    String logPath,
+  ) async {
+    final file = File(logPath);
+    if (!await file.exists()) return null;
+    try {
+      final text = await file.readAsString();
+      final re = RegExp(
+        r'AGENT_DEVICE_RUNNER_RECORD_START\b[^\n]*\bresolvedOutPath=(\S+)',
+      );
+      final matches = re.allMatches(text).toList();
+      if (matches.isEmpty) return null;
+      return matches.last.group(1);
+    } catch (_) {
+      return null;
+    }
+  }
+
   @override
   Future<BackendActionResult> pinch(
     BackendCommandContext ctx,

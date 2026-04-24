@@ -53,6 +53,28 @@ void main() {
       ]);
     });
 
+    test('record start / stop round-trip through the backend', () async {
+      final backend = _RecordingBackend();
+      final device = await openDevice(backend);
+      final script = File('${tmp.path}/record.ad');
+      final outPath = '${tmp.path}/rec.mp4';
+      await script.writeAsString(
+        'record start $outPath\nhome\nrecord stop $outPath\n',
+      );
+      final result = await runReplayScript(
+        scriptPath: script.path,
+        device: device,
+      );
+      expect(result.ok, isTrue, reason: result.steps.toString());
+      expect(backend.calls.map((c) => c.name).toList(), [
+        'startRecording',
+        'pressHome',
+        'stopRecording',
+      ]);
+      // Stop step should surface the recording file path as an artifact.
+      expect(result.steps.last.artifactPaths, contains(outPath));
+    });
+
     test('appstate dispatches a read-only getAppState call', () async {
       final backend = _RecordingBackend();
       final device = await openDevice(backend);
@@ -340,6 +362,24 @@ class _RecordingBackend extends Backend {
   ) async {
     _record('getAppState', {'app': app});
     return const BackendAppState(state: 'foreground');
+  }
+
+  @override
+  Future<BackendRecordingResult> startRecording(
+    BackendCommandContext ctx,
+    BackendRecordingOptions? options,
+  ) async {
+    _record('startRecording', {'outPath': options?.outPath});
+    return BackendRecordingResult(path: options?.outPath);
+  }
+
+  @override
+  Future<BackendRecordingResult> stopRecording(
+    BackendCommandContext ctx,
+    BackendRecordingOptions? options,
+  ) async {
+    _record('stopRecording', {'outPath': options?.outPath});
+    return BackendRecordingResult(path: options?.outPath);
   }
 
   @override

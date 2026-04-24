@@ -385,6 +385,40 @@ class AgentDevice {
   }
 
   // =========================================================================
+  // Recording
+  // =========================================================================
+
+  /// Start recording video of the current app. The video file is written
+  /// to [outPath] when [stopRecording] is called. On iOS the recording
+  /// captures frames from the currently-open app (set via [openApp]); on
+  /// Android the full screen is captured.
+  Future<BackendRecordingResult> startRecording(
+    String outPath, {
+    int? fps,
+    int? quality,
+    bool? showTouches,
+  }) async {
+    return backend.startRecording(
+      await _ctx(),
+      BackendRecordingOptions(
+        outPath: outPath,
+        fps: fps,
+        quality: quality,
+        showTouches: showTouches,
+      ),
+    );
+  }
+
+  /// Stop the in-progress recording and finalize the file at [outPath].
+  /// [outPath] must match the path passed to [startRecording].
+  Future<BackendRecordingResult> stopRecording(String outPath) async {
+    return backend.stopRecording(
+      await _ctx(),
+      BackendRecordingOptions(outPath: outPath),
+    );
+  }
+
+  // =========================================================================
   // Clipboard & Keyboard
   // =========================================================================
 
