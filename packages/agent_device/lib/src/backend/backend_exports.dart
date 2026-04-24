@@ -33,6 +33,8 @@ export 'diagnostics.dart'
         BackendNetworkEntry,
         BackendNetworkIncludeMode,
         BackendPerfMetric,
+        BackendLogStreamOptions,
+        BackendLogStreamResult,
         BackendReadLogsOptions,
         BackendReadLogsResult;
 export 'install_source.dart'

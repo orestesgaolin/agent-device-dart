@@ -10,6 +10,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:agent_device/src/backend/backend.dart';
+import 'package:agent_device/src/diagnostics/log_stream_record.dart';
 import 'package:agent_device/src/runtime/paths.dart';
 import 'package:agent_device/src/snapshot/snapshot.dart';
 import 'package:agent_device/src/utils/errors.dart';
@@ -407,6 +408,122 @@ class IosBackend extends Backend {
   }
 
   // =========================================================================
+  // Diagnostics: Log streaming (background)
+  // =========================================================================
+
+  /// Start tailing os_log for the session's app into [options.outPath].
+  /// Forks `xcrun simctl spawn <udid> log stream --predicate …` writing
+  /// to the host file; the PID is persisted at
+  /// `<stateDir>/log-streams/<udid>.json` so a later invocation can
+  /// [stopLogStream]. If an existing record is present we SIGINT its
+  /// pid first so we don't leak tails.
+  @override
+  Future<BackendLogStreamResult> startLogStream(
+    BackendCommandContext ctx,
+    BackendLogStreamOptions options,
+  ) async {
+    final udid = _udid(ctx);
+    final kind = await _resolveKind(udid);
+    if (kind == 'device') {
+      throw AppError(
+        AppErrorCodes.unsupportedOperation,
+        'iOS physical-device log streaming is not yet wired (needs '
+        '`xcrun devicectl device log stream --device $udid`).',
+      );
+    }
+    final bundleId = options.appBundleId ?? ctx.appBundleId ?? ctx.appId;
+    if (bundleId == null || bundleId.isEmpty) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'iOS startLogStream requires an open app (run '
+        '`agent-device open <bundleId>` first).',
+      );
+    }
+    final outPath = options.outPath;
+    if (outPath == null || outPath.isEmpty) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'iOS startLogStream requires options.outPath.',
+      );
+    }
+
+    // Stop any existing stream for this device so we don't duplicate.
+    final existing = await readLogStreamRecord(udid);
+    if (existing != null) {
+      killLogStreamPid(existing.hostPid);
+      await deleteLogStreamRecord(udid);
+    }
+
+    final predicate = [
+      'subsystem == "$bundleId"',
+      'processImagePath ENDSWITH[c] "/$bundleId"',
+      'senderImagePath ENDSWITH[c] "/$bundleId"',
+    ].join(' OR ');
+    // Use `sh -c` so we can redirect stdout to the host file in one
+    // detached process. The inner command is `xcrun simctl spawn <udid>
+    // log stream ... > outPath 2>&1`.
+    final outFile = File(outPath);
+    await outFile.parent.create(recursive: true);
+    final script =
+        'exec xcrun simctl spawn '
+        '${_shellQuote(udid)} log stream '
+        '--style compact --level info '
+        '--predicate ${_shellQuote(predicate)} '
+        '> ${_shellQuote(outPath)} 2>&1';
+    final proc = await runCmdDetached('sh', [
+      '-c',
+      script,
+    ], const ExecDetachedOptions());
+    final startedAt = DateTime.now().toUtc().toIso8601String();
+    await writeLogStreamRecord(
+      LogStreamRecord(
+        deviceId: udid,
+        platform: 'ios',
+        hostPid: proc.pid,
+        outPath: outPath,
+        startedAt: startedAt,
+        appBundleId: bundleId,
+      ),
+    );
+    return BackendLogStreamResult(
+      outPath: outPath,
+      hostPid: proc.pid,
+      backend: 'ios-simulator-log-stream',
+      startedAt: startedAt,
+    );
+  }
+
+  @override
+  Future<BackendLogStreamResult> stopLogStream(
+    BackendCommandContext ctx,
+  ) async {
+    final udid = _udid(ctx);
+    final record = await readLogStreamRecord(udid);
+    if (record == null) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'No active log stream for iOS device $udid.',
+      );
+    }
+    final delivered = killLogStreamPid(record.hostPid);
+    // Give the tail a beat to flush any buffered lines.
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    await deleteLogStreamRecord(udid);
+    int? bytes;
+    final f = File(record.outPath);
+    if (await f.exists()) bytes = await f.length();
+    return BackendLogStreamResult(
+      outPath: record.outPath,
+      hostPid: record.hostPid,
+      backend: 'ios-simulator-log-stream',
+      startedAt: record.startedAt,
+      stoppedAt: DateTime.now().toUtc().toIso8601String(),
+      bytes: bytes,
+      stale: !delivered,
+    );
+  }
+
+  // =========================================================================
   // Diagnostics: Performance sampling (simctl spawn ps)
   // =========================================================================
 
@@ -758,6 +875,8 @@ class IosBackend extends Backend {
     return kind;
   }
 }
+
+String _shellQuote(String s) => "'${s.replaceAll("'", r"'\''")}'";
 
 Future<void> _sendOrThrow(
   IosRunnerSession session,

@@ -414,6 +414,20 @@ abstract class Backend {
     BackendReadLogsOptions? options,
   ) async => unsupported('readLogs');
 
+  /// Begin streaming device logs to a host file. Runs a background
+  /// process (e.g. `adb logcat` / `simctl spawn log stream`) whose PID
+  /// is persisted on disk so a later invocation can [stopLogStream].
+  Future<BackendLogStreamResult> startLogStream(
+    BackendCommandContext ctx,
+    BackendLogStreamOptions options,
+  ) async => unsupported('startLogStream');
+
+  /// Stop the currently-running log stream for the ctx's device.
+  /// Returns the final on-disk size + stop timestamp.
+  Future<BackendLogStreamResult> stopLogStream(
+    BackendCommandContext ctx,
+  ) async => unsupported('stopLogStream');
+
   /// Dump network activity.
   Future<BackendDumpNetworkResult> dumpNetwork(
     BackendCommandContext ctx,

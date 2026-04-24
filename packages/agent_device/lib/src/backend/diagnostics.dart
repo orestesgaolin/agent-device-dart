@@ -80,6 +80,58 @@ class BackendReadLogsResult {
 }
 
 // ============================================================================
+// Log streaming (background tail-to-file)
+// ============================================================================
+
+/// Options for [Backend.startLogStream].
+class BackendLogStreamOptions {
+  /// File on the host to write the captured stream to. Required.
+  final String? outPath;
+
+  /// Override the app bundle id / package filter (iOS predicate or
+  /// Android `--pid <pidof(pkg)>`). Defaults to the session's open app
+  /// if null.
+  final String? appBundleId;
+
+  const BackendLogStreamOptions({this.outPath, this.appBundleId});
+}
+
+/// Result of [Backend.startLogStream] / [Backend.stopLogStream].
+class BackendLogStreamResult {
+  final String outPath;
+  final int? hostPid;
+  final String? backend;
+  final String? startedAt;
+  final String? stoppedAt;
+
+  /// Bytes written to [outPath] at the moment the stream was stopped.
+  final int? bytes;
+
+  /// True if the record was orphaned (no PID / process already gone).
+  final bool? stale;
+
+  const BackendLogStreamResult({
+    required this.outPath,
+    this.hostPid,
+    this.backend,
+    this.startedAt,
+    this.stoppedAt,
+    this.bytes,
+    this.stale,
+  });
+
+  Map<String, Object?> toJson() => <String, Object?>{
+    'outPath': outPath,
+    if (hostPid != null) 'hostPid': hostPid,
+    if (backend != null) 'backend': backend,
+    if (startedAt != null) 'startedAt': startedAt,
+    if (stoppedAt != null) 'stoppedAt': stoppedAt,
+    if (bytes != null) 'bytes': bytes,
+    if (stale != null) 'stale': stale,
+  };
+}
+
+// ============================================================================
 // Network
 // ============================================================================
 

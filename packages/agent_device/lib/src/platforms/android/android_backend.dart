@@ -6,6 +6,7 @@ import 'dart:io';
 import 'package:agent_device/src/backend/backend.dart';
 import 'package:agent_device/src/core/device_rotation.dart';
 import 'package:agent_device/src/core/scroll_gesture.dart';
+import 'package:agent_device/src/diagnostics/log_stream_record.dart';
 import 'package:agent_device/src/runtime/paths.dart';
 import 'package:agent_device/src/snapshot/snapshot.dart';
 import 'package:agent_device/src/utils/errors.dart';
@@ -613,6 +614,119 @@ class AndroidBackend extends Backend {
   }
 
   // =========================================================================
+  // Diagnostics: Log streaming (background)
+  // =========================================================================
+
+  /// Start `adb -s <serial> logcat` in the background, writing to
+  /// [options.outPath]. If the session has an open app we look up its
+  /// PID via `adb shell pidof <pkg>` and narrow via `--pid`; otherwise
+  /// the full logcat stream is captured. PID + outPath are persisted
+  /// at `<stateDir>/log-streams/<serial>.json` so [stopLogStream] in a
+  /// later invocation can find them.
+  @override
+  Future<BackendLogStreamResult> startLogStream(
+    BackendCommandContext ctx,
+    BackendLogStreamOptions options,
+  ) async {
+    final outPath = options.outPath;
+    if (outPath == null || outPath.isEmpty) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'Android startLogStream requires options.outPath.',
+      );
+    }
+    final serial = _serial(ctx);
+    final appPackage = options.appBundleId ?? ctx.appId;
+
+    // SIGINT any stale stream first so we don't leak logcat processes.
+    final existing = await readLogStreamRecord(serial);
+    if (existing != null) {
+      killLogStreamPid(existing.hostPid);
+      await deleteLogStreamRecord(serial);
+    }
+
+    int? pid;
+    if (appPackage != null && appPackage.isNotEmpty) {
+      final r = await runCmd('adb', [
+        '-s',
+        serial,
+        'shell',
+        'pidof',
+        appPackage,
+      ], const ExecOptions(allowFailure: true, timeoutMs: 5000));
+      final lookedUp = int.tryParse(
+        r.stdout.trim().split(RegExp(r'\s+')).first,
+      );
+      if (lookedUp != null && lookedUp > 0) pid = lookedUp;
+    }
+
+    final args = <String>[
+      '-s',
+      serial,
+      'logcat',
+      '-v',
+      'time',
+      if (pid != null) ...['--pid', '$pid'],
+    ];
+
+    final outFile = File(outPath);
+    await outFile.parent.create(recursive: true);
+    // `sh -c 'exec adb … > path 2>&1'` so we can background it cleanly.
+    final quotedArgs = args.map((a) => _shellQuote(a)).join(' ');
+    final script = 'exec adb $quotedArgs > ${_shellQuote(outPath)} 2>&1';
+    final proc = await runCmdDetached('sh', [
+      '-c',
+      script,
+    ], const ExecDetachedOptions());
+    final startedAt = DateTime.now().toUtc().toIso8601String();
+    await writeLogStreamRecord(
+      LogStreamRecord(
+        deviceId: serial,
+        platform: 'android',
+        hostPid: proc.pid,
+        outPath: outPath,
+        startedAt: startedAt,
+        appBundleId: appPackage,
+      ),
+    );
+    return BackendLogStreamResult(
+      outPath: outPath,
+      hostPid: proc.pid,
+      backend: pid != null ? 'android-logcat-pid' : 'android-logcat',
+      startedAt: startedAt,
+    );
+  }
+
+  @override
+  Future<BackendLogStreamResult> stopLogStream(
+    BackendCommandContext ctx,
+  ) async {
+    final serial = _serial(ctx);
+    final record = await readLogStreamRecord(serial);
+    if (record == null) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'No active log stream for Android device $serial.',
+      );
+    }
+    final delivered = killLogStreamPid(record.hostPid);
+    await Future<void>.delayed(const Duration(milliseconds: 400));
+    await deleteLogStreamRecord(serial);
+    int? bytes;
+    final f = File(record.outPath);
+    if (await f.exists()) bytes = await f.length();
+    return BackendLogStreamResult(
+      outPath: record.outPath,
+      hostPid: record.hostPid,
+      backend: 'android-logcat',
+      startedAt: record.startedAt,
+      stoppedAt: DateTime.now().toUtc().toIso8601String(),
+      bytes: bytes,
+      stale: !delivered,
+    );
+  }
+
+  // =========================================================================
   // Diagnostics: Logs (one-shot)
   // =========================================================================
 
@@ -692,6 +806,8 @@ class AndroidBackend extends Backend {
     return BackendInstallResult(appId: res.package, packageName: res.package);
   }
 }
+
+String _shellQuote(String s) => "'${s.replaceAll("'", r"'\''")}'";
 
 /// Convert iOS-flavoured `--since` inputs (`30s`, `5m`, `1h`, `2d`) into
 /// the `MM-DD HH:MM:SS.mmm` timestamp adb's `logcat -T` expects. Absolute

@@ -402,6 +402,27 @@ class AgentDevice {
     );
   }
 
+  /// Begin streaming device logs to [outPath] as a detached background
+  /// process. The PID is persisted under `<stateDir>/log-streams/` so a
+  /// subsequent [stopLogStream] call (from any shell) can find it.
+  /// iOS filters to the session's open app via os_log predicate;
+  /// Android narrows with `logcat --pid <pidof(pkg)>` when an app is
+  /// open, otherwise returns the full stream.
+  Future<BackendLogStreamResult> startLogStream(
+    String outPath, {
+    String? appBundleId,
+  }) async {
+    return backend.startLogStream(
+      await _ctx(),
+      BackendLogStreamOptions(outPath: outPath, appBundleId: appBundleId),
+    );
+  }
+
+  /// Stop the currently-active log stream for this session's device.
+  Future<BackendLogStreamResult> stopLogStream() async {
+    return backend.stopLogStream(await _ctx());
+  }
+
   /// Dump recent device logs filtered to the session's current app.
   /// [since] can be `30s` / `5m` / `1h` for a relative window, or an
   /// absolute timestamp (`@<epoch>` or `YYYY-MM-DD HH:MM:SS`). iOS
