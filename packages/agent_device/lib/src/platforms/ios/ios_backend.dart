@@ -24,6 +24,13 @@ import 'perf.dart';
 import 'runner_client.dart';
 import 'screenshot.dart';
 
+/// Bundle id of the XCUITest runner app installed on a physical iOS
+/// device when recording. Matches the `PRODUCT_BUNDLE_IDENTIFIER`
+/// configured for the `AgentDeviceRunner` Xcode target — if that's
+/// ever renamed, the devicectl copy path used by stopRecording needs
+/// to follow.
+const String _iosRunnerBundleId = 'dev.roszkowski.agentdevice.runner';
+
 class IosBackend extends Backend {
   const IosBackend();
 
@@ -62,7 +69,11 @@ class IosBackend extends Backend {
     }
     // Stale or missing — clear the record and launch fresh.
     await _deleteRunnerRecord(udid);
-    final session = await IosRunnerClient.launch(udid: udid);
+    final kindStr = await _resolveKind(udid);
+    final runnerKind = kindStr == 'device'
+        ? IosRunnerKind.device
+        : IosRunnerKind.simulator;
+    final session = await IosRunnerClient.launch(udid: udid, kind: runnerKind);
     _IosRunnerCache.instance.set(udid, session);
     await _writeRunnerRecord(session);
     return session;
@@ -364,7 +375,9 @@ class IosBackend extends Backend {
       );
     }
     // Runner logs `resolvedOutPath=<abs>` — use the most recent match
-    // for this session's log so we can pull the file off the sim.
+    // for this session's log to locate the MP4. On simulator that path
+    // is directly readable on the host FS; on device we pull it out via
+    // `xcrun devicectl device copy from --domain-type appDataContainer`.
     final resolved = await _findLatestResolvedRecordingPath(session.logPath);
     if (resolved == null) {
       return BackendRecordingResult(
@@ -374,6 +387,43 @@ class IosBackend extends Backend {
             'location is unknown; check ${session.logPath}.',
       );
     }
+    final dst = File(outPath);
+    await dst.parent.create(recursive: true);
+
+    if (session.kind == IosRunnerKind.device) {
+      // On device `resolved` is an on-device absolute path inside the
+      // runner's sandbox (`/private/var/mobile/.../tmp/<file>.mp4`).
+      // The app-data-container-relative form is `tmp/<basename>`.
+      final remotePath = 'tmp/${p.basename(resolved)}';
+      final pull = await runCmd('xcrun', [
+        'devicectl',
+        'device',
+        'copy',
+        'from',
+        '--device',
+        _udid(ctx),
+        '--source',
+        remotePath,
+        '--destination',
+        outPath,
+        '--domain-type',
+        'appDataContainer',
+        '--domain-identifier',
+        _iosRunnerBundleId,
+      ], const ExecOptions(allowFailure: true, timeoutMs: 60000));
+      if (pull.exitCode != 0) {
+        return BackendRecordingResult(
+          path: outPath,
+          warning:
+              'devicectl copy from $remotePath failed (exit ${pull.exitCode}): '
+              '${pull.stderr.trim()}',
+        );
+      }
+      return BackendRecordingResult(path: outPath);
+    }
+
+    // Simulator: the runner wrote into its on-sim-host sandbox, which
+    // is directly accessible on the host file system.
     final src = File(resolved);
     if (!await src.exists()) {
       return BackendRecordingResult(
@@ -383,8 +433,6 @@ class IosBackend extends Backend {
             'may still be finalizing.',
       );
     }
-    final dst = File(outPath);
-    await dst.parent.create(recursive: true);
     await src.copy(dst.path);
     return BackendRecordingResult(path: outPath);
   }

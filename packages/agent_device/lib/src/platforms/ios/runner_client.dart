@@ -1,10 +1,21 @@
 // Port of agent-device/src/platforms/ios/runner-client.ts + runner-transport.ts
-// + runner-session.ts (MVP slice).
+// + runner-session.ts.
 //
-// Minimum viable XCUITest-runner bridge for Phase 8B: prepare an
-// `.xctestrun` file with a pre-picked port, launch the runner detached
-// via `xcodebuild test-without-building`, wait for the `AGENT_DEVICE_RUNNER_PORT=`
-// log line, then POST JSON commands at `http://127.0.0.1:<port>/command`.
+// XCUITest-runner bridge. Prepares an `.xctestrun` file with a pre-picked
+// port, launches the runner detached via `xcodebuild test-without-building`,
+// waits for the HTTP listener, then POSTs JSON commands at the runner's
+// command endpoint.
+//
+// Simulator: the runner's loopback port is reachable on the host at
+// `127.0.0.1:<port>` directly because the sim shares the host network
+// stack.
+//
+// Physical device: the runner listens inside the device; we reach it
+// over the CoreDevice USB tunnel using the IPv6 address returned by
+// `xcrun devicectl device info details`. On device we hit
+// `http://[<tunnelIp>]:<port>/command` first and fall back to loopback
+// (which shouldn't succeed — kept only so stale records don't hang
+// forever on a port probe).
 library;
 
 import 'dart:convert';
@@ -23,13 +34,32 @@ class RunnerResponse {
   const RunnerResponse({required this.ok, this.data, this.errorMessage});
 }
 
-/// Live connection to an XCUITest runner process on a simulator.
+/// Device kind the runner is driving. Determines xctestrun variant,
+/// xcodebuild destination, and how the host reaches the HTTP endpoint.
+enum IosRunnerKind {
+  simulator('simulator'),
+  device('device');
+
+  final String wire;
+  const IosRunnerKind(this.wire);
+
+  static IosRunnerKind parse(String? raw) =>
+      raw == 'device' ? IosRunnerKind.device : IosRunnerKind.simulator;
+}
+
+/// Live connection to an XCUITest runner process.
 class IosRunnerSession {
   final String udid;
   final int port;
   final int xcodebuildPid;
   final String xctestrunPath;
   final String logPath;
+  final IosRunnerKind kind;
+
+  /// IPv6 CoreDevice tunnel IP. Populated for [IosRunnerKind.device] on
+  /// launch, null for simulators. Re-resolved on `send` if the cached
+  /// value stops working.
+  final String? tunnelIp;
 
   const IosRunnerSession({
     required this.udid,
@@ -37,6 +67,8 @@ class IosRunnerSession {
     required this.xcodebuildPid,
     required this.xctestrunPath,
     required this.logPath,
+    this.kind = IosRunnerKind.simulator,
+    this.tunnelIp,
   });
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -45,6 +77,8 @@ class IosRunnerSession {
     'xcodebuildPid': xcodebuildPid,
     'xctestrunPath': xctestrunPath,
     'logPath': logPath,
+    'kind': kind.wire,
+    if (tunnelIp != null) 'tunnelIp': tunnelIp,
   };
 
   static IosRunnerSession? fromJson(Object? raw) {
@@ -67,57 +101,82 @@ class IosRunnerSession {
       xcodebuildPid: pid,
       xctestrunPath: xctr,
       logPath: log,
+      kind: IosRunnerKind.parse(raw['kind'] as String?),
+      tunnelIp: raw['tunnelIp'] as String?,
     );
   }
+
+  IosRunnerSession copyWith({String? tunnelIp}) => IosRunnerSession(
+    udid: udid,
+    port: port,
+    xcodebuildPid: xcodebuildPid,
+    xctestrunPath: xctestrunPath,
+    logPath: logPath,
+    kind: kind,
+    tunnelIp: tunnelIp ?? this.tunnelIp,
+  );
 }
 
 /// Launch + manage the XCUITest runner.
 class IosRunnerClient {
   /// Resolve the base directory of the built iOS runner — where the
-  /// `*.xctestrun` file and `Debug-iphonesimulator/` sit.
+  /// `*.xctestrun` file + `Debug-iphoneos/` or `Debug-iphonesimulator/`
+  /// sit.
   ///
-  /// Priority: `AGENT_DEVICE_IOS_RUNNER_BUILD_DIR` env var → repo-local
-  /// `<repoRoot>/ios-runner/build/Build/Products/`.
-  static String resolveBuildProductsDir({String? override}) {
+  /// Priority: explicit [override] arg → `AGENT_DEVICE_IOS_RUNNER_BUILD_DIR`
+  /// env var → walk up for a sibling `ios-runner/` and pick the kind-
+  /// appropriate sub-path (`build-device/…` for device, `build/…` for
+  /// simulator).
+  static String resolveBuildProductsDir({
+    String? override,
+    IosRunnerKind kind = IosRunnerKind.simulator,
+  }) {
     final env =
         override ?? Platform.environment['AGENT_DEVICE_IOS_RUNNER_BUILD_DIR'];
     if (env != null && env.trim().isNotEmpty) return env.trim();
-    // Walk up from cwd until we find a sibling `ios-runner/` directory.
+    final buildSubdir = kind == IosRunnerKind.device ? 'build-device' : 'build';
     var dir = Directory.current;
     for (var i = 0; i < 8; i++) {
       final candidate = Directory(
-        p.join(dir.path, 'ios-runner', 'build', 'Build', 'Products'),
+        p.join(dir.path, 'ios-runner', buildSubdir, 'Build', 'Products'),
       );
       if (candidate.existsSync()) return candidate.path;
       final parent = dir.parent;
       if (parent.path == dir.path) break;
       dir = parent;
     }
-    // Last resort: a conventional path relative to cwd. Will fail loudly
-    // when [findXctestrun] can't find the file.
     return p.join(
       Directory.current.path,
       'ios-runner',
-      'build',
+      buildSubdir,
       'Build',
       'Products',
     );
   }
 
   /// Find the `.xctestrun` template in [productsDir]. Throws if there
-  /// isn't exactly one.
-  static File findXctestrun(String productsDir) {
+  /// isn't a matching file. Picks the `iphoneos` variant for device,
+  /// `iphonesimulator` for sim.
+  static File findXctestrun(
+    String productsDir, {
+    IosRunnerKind kind = IosRunnerKind.simulator,
+  }) {
     final dir = Directory(productsDir);
     if (!dir.existsSync()) {
       throw AppError(
         AppErrorCodes.commandFailed,
         'iOS runner has not been built — missing directory: $productsDir',
         details: {
-          'hint':
-              'Run `xcodebuild build-for-testing -project '
-              'ios-runner/AgentDeviceRunner/AgentDeviceRunner.xcodeproj '
-              '-scheme AgentDeviceRunner -destination "generic/platform=iOS Simulator" '
-              '-derivedDataPath ios-runner/build` once.',
+          'hint': kind == IosRunnerKind.device
+              ? 'Run `xcodebuild build-for-testing -project '
+                    'ios-runner/AgentDeviceRunner/AgentDeviceRunner.xcodeproj '
+                    '-scheme AgentDeviceRunner -destination "generic/platform=iOS" '
+                    '-derivedDataPath ios-runner/build-device` once with a '
+                    'provisioning profile that covers the target device.'
+              : 'Run `xcodebuild build-for-testing -project '
+                    'ios-runner/AgentDeviceRunner/AgentDeviceRunner.xcodeproj '
+                    '-scheme AgentDeviceRunner -destination "generic/platform=iOS Simulator" '
+                    '-derivedDataPath ios-runner/build` once.',
         },
       );
     }
@@ -132,15 +191,14 @@ class IosRunnerClient {
         'No .xctestrun file found in $productsDir — runner is not built.',
       );
     }
-    if (files.length > 1) {
-      // Prefer the iphonesimulator variant.
-      final sim = files.firstWhere(
-        (f) => f.path.contains('iphonesimulator'),
-        orElse: () => files.first,
-      );
-      return sim;
-    }
-    return files.first;
+    final wanted = kind == IosRunnerKind.device
+        ? 'iphoneos'
+        : 'iphonesimulator';
+    final matching = files.firstWhere(
+      (f) => f.path.contains(wanted),
+      orElse: () => files.first,
+    );
+    return matching;
   }
 
   /// Prepare a patched copy of [template] under `/tmp/` with the
@@ -189,17 +247,30 @@ class IosRunnerClient {
   /// so the runner can outlive the CLI process when the caller wants to
   /// cache it on the session.
   ///
+  /// [kind] selects simulator vs physical-device mode — drives the
+  /// xctestrun choice, the xcodebuild `-destination` string, and the
+  /// HTTP endpoint resolution after launch (tunnel IP for device,
+  /// loopback for sim).
+  ///
   /// Throws `AppError` with `COMMAND_FAILED` if the runner doesn't come
   /// up within [startupTimeout].
   static Future<IosRunnerSession> launch({
     required String udid,
+    IosRunnerKind kind = IosRunnerKind.simulator,
     String? buildProductsDirOverride,
-    Duration startupTimeout = const Duration(seconds: 60),
+    Duration? startupTimeout,
   }) async {
+    // Device first-launch is much slower than simulator (code-signing
+    // validation + CoreDevice handshake + app launch over USB). Default
+    // to a generous budget when the caller doesn't override.
+    startupTimeout ??= kind == IosRunnerKind.device
+        ? const Duration(seconds: 180)
+        : const Duration(seconds: 60);
     final productsDir = resolveBuildProductsDir(
       override: buildProductsDirOverride,
+      kind: kind,
     );
-    final template = findXctestrun(productsDir);
+    final template = findXctestrun(productsDir, kind: kind);
     final port = await pickFreePort();
     final xctestrunPath = await prepareXctestrunWithEnv(
       template: template,
@@ -209,78 +280,311 @@ class IosRunnerClient {
 
     final logDir = await Directory.systemTemp.createTemp('ad-ios-runner-log-');
     final logPath = p.join(logDir.path, 'runner.log');
+    final destination = kind == IosRunnerKind.device
+        ? 'platform=iOS,id=$udid'
+        : 'platform=iOS Simulator,id=$udid';
     // xcodebuild writes to stdout; redirect via `sh -c '… > log 2>&1'`
     // so the detached subprocess has nowhere for the parent to drain.
     final proc = await runCmdDetached('sh', [
       '-c',
       'exec xcodebuild test-without-building '
           '-xctestrun ${_shq(xctestrunPath)} '
-          '-destination "platform=iOS Simulator,id=$udid" '
+          '-destination ${_shq(destination)} '
           "-only-testing 'AgentDeviceRunnerUITests/RunnerTests/testCommand' "
           '-parallel-testing-enabled NO '
           '-test-timeouts-enabled NO '
           '> ${_shq(logPath)} 2>&1',
     ], const ExecDetachedOptions());
 
-    // Poll the log for the readiness line OR hit the port directly.
+    // Resolve the tunnel IP in the background while we probe. Only
+    // needed on device; null for simulator.
+    final tunnelIpFuture = kind == IosRunnerKind.device
+        ? resolveDeviceTunnelIp(udid, timeoutMs: 8000)
+        : Future<String?>.value(null);
+
+    // Poll until the HTTP listener is up. For simulator we probe
+    // loopback TCP; for device we try the tunnel IP (once resolved)
+    // and do an HTTP GET/POST since raw TCP connect against the IPv6
+    // tunnel can get stuck on some systems.
     final deadline = DateTime.now().add(startupTimeout);
+    String? tunnelIp;
     while (DateTime.now().isBefore(deadline)) {
-      // Try the socket first — succeeds as soon as the listener is up.
-      final ok = await _probePort(port);
-      if (ok) {
-        return IosRunnerSession(
-          udid: udid,
-          port: port,
-          xcodebuildPid: proc.pid,
-          xctestrunPath: xctestrunPath,
-          logPath: logPath,
-        );
+      if (kind == IosRunnerKind.simulator) {
+        if (await _probePort(port)) {
+          return IosRunnerSession(
+            udid: udid,
+            port: port,
+            xcodebuildPid: proc.pid,
+            xctestrunPath: xctestrunPath,
+            logPath: logPath,
+            kind: kind,
+          );
+        }
+      } else {
+        tunnelIp ??= await tunnelIpFuture;
+        if (tunnelIp != null) {
+          if (await _probeRunnerEndpoint(
+            _commandUrl(tunnelIp, port),
+            timeout: const Duration(seconds: 2),
+          )) {
+            return IosRunnerSession(
+              udid: udid,
+              port: port,
+              xcodebuildPid: proc.pid,
+              xctestrunPath: xctestrunPath,
+              logPath: logPath,
+              kind: kind,
+              tunnelIp: tunnelIp,
+            );
+          }
+        }
       }
       await Future<void>.delayed(const Duration(milliseconds: 500));
     }
 
-    // Timeout — capture the last few log lines so the error is useful.
+    // Timeout — capture log text (full for diagnosis, tail for display).
+    String fullLog = '';
     String tail = '';
     try {
       final file = File(logPath);
       if (await file.exists()) {
         final bytes = await file.readAsBytes();
-        final text = utf8.decode(bytes, allowMalformed: true);
-        final lines = text.split('\n');
+        fullLog = utf8.decode(bytes, allowMalformed: true);
+        final lines = fullLog.split('\n');
         tail = lines
             .sublist(lines.length > 40 ? lines.length - 40 : 0)
             .join('\n');
       }
     } catch (_) {}
-    // Kill the xcodebuild tree so we don't leak zombies.
     try {
       Process.killPid(proc.pid, ProcessSignal.sigkill);
     } catch (_) {}
+    // XCUITest device-side config errors are recurring support pain
+    // points (Developer Mode, cert-trust, device lock) — try to
+    // recognize them and surface an actionable hint rather than a
+    // generic timeout. Scan the WHOLE log (patterns often appear
+    // mid-run, not just at the tail).
+    final hint = _diagnoseRunnerStartupFailure(fullLog, kind);
     throw AppError(
       AppErrorCodes.commandFailed,
       'iOS runner did not become ready on port $port within '
       '${startupTimeout.inSeconds}s.',
       details: {
         'udid': udid,
+        'kind': kind.wire,
         'port': port,
+        'tunnelIp': tunnelIp,
         'xctestrunPath': xctestrunPath,
         'logTail': tail,
+        if (hint != null) 'hint': hint,
       },
     );
   }
 
-  /// POST a JSON [body] to `http://127.0.0.1:<session.port>/command`
-  /// with the runner protocol envelope. Returns the parsed response.
+  /// Scan the xcodebuild log tail for common XCUITest failure patterns
+  /// and return a human-readable hint the user can act on. Returns null
+  /// if nothing matched — fall back to the generic timeout message.
+  static String? _diagnoseRunnerStartupFailure(
+    String logTail,
+    IosRunnerKind kind,
+  ) {
+    if (logTail.contains('Timed out while enabling automation mode')) {
+      return kind == IosRunnerKind.device
+          ? 'The UI test runner failed to enable automation mode on the '
+                'device. On physical iOS this usually means: (1) Developer '
+                'Mode is not enabled — toggle it at `Settings > Privacy & '
+                'Security > Developer Mode`, then reboot the device. (2) The '
+                'runner app signature is not trusted — launch '
+                '`AgentDeviceRunner` once manually from the home screen and '
+                'approve the developer at `Settings > General > VPN & Device '
+                'Management`. (3) The device is locked — unlock it before '
+                'retrying.'
+          : 'UI test failed to enable automation mode. Close all Xcode '
+                'windows running a test against this simulator, boot the '
+                'simulator fresh, and retry.';
+    }
+    if (logTail.contains('UITesting') &&
+        logTail.contains('failed to install')) {
+      return 'The runner app failed to install on the device. Check that '
+          'the provisioning profile covers this UDID and that the device '
+          'is paired + trusted in Xcode > Devices.';
+    }
+    if (logTail.contains('Could not launch') && logTail.contains('signature')) {
+      return 'The runner\'s code signature was rejected by the device. '
+          'Re-build with `xcodebuild build-for-testing -destination '
+          '"generic/platform=iOS" -derivedDataPath ios-runner/build-device` '
+          'using a provisioning profile that covers this device.';
+    }
+    // Catch-all: the runner got as far as launching the test bundle
+    // ("Running tests...") but never emitted AGENT_DEVICE_RUNNER_PORT.
+    // On device this is usually an automation-mode or trust issue.
+    if (kind == IosRunnerKind.device &&
+        logTail.contains('Running tests...') &&
+        !logTail.contains('AGENT_DEVICE_RUNNER_PORT=')) {
+      return 'The XCUITest runner launched but never opened its HTTP '
+          'listener. On physical iOS this typically means automation mode '
+          'couldn\'t be enabled. Check: (1) `Settings > Privacy & Security > '
+          'Developer Mode` is ON and the device has been rebooted since. '
+          '(2) The `AgentDeviceRunner` target app (dev.roszkowski.'
+          'agentdevice.runner) is installed + trusted — launch it once '
+          'manually from the home screen and approve the developer at '
+          '`Settings > General > VPN & Device Management`. (3) Device is '
+          'unlocked during the run.';
+    }
+    return null;
+  }
+
+  /// Pull the CoreDevice tunnel IPv6 address for [udid]. Returns null on
+  /// any error (device asleep, not trusted, etc.) — callers fall back
+  /// to the deadline.
+  static Future<String?> resolveDeviceTunnelIp(
+    String udid, {
+    int timeoutMs = 8000,
+  }) async {
+    final tmp = File(
+      p.join(
+        Directory.systemTemp.path,
+        'ad-devicectl-info-$pid-${DateTime.now().microsecondsSinceEpoch}.json',
+      ),
+    );
+    try {
+      final r = await runCmd('xcrun', [
+        'devicectl',
+        'device',
+        'info',
+        'details',
+        '--device',
+        udid,
+        '--json-output',
+        tmp.path,
+        '--timeout',
+        '${(timeoutMs / 1000).ceil()}',
+      ], ExecOptions(allowFailure: true, timeoutMs: timeoutMs));
+      if (r.exitCode != 0 || !await tmp.exists()) return null;
+      final raw = jsonDecode(await tmp.readAsString());
+      if (raw is! Map) return null;
+      final info = raw['info'];
+      if (info is Map &&
+          info['outcome'] != null &&
+          info['outcome'] != 'success') {
+        return null;
+      }
+      final result = raw['result'];
+      if (result is! Map) return null;
+      final direct =
+          (result['connectionProperties'] as Map?)?['tunnelIPAddress']
+              as String?;
+      if (direct != null && direct.trim().isNotEmpty) return direct.trim();
+      final nested =
+          (((result['device'] as Map?)?['connectionProperties']
+                  as Map?)?['tunnelIPAddress'])
+              as String?;
+      if (nested != null && nested.trim().isNotEmpty) return nested.trim();
+      return null;
+    } on FormatException {
+      return null;
+    } finally {
+      if (await tmp.exists()) {
+        try {
+          await tmp.delete();
+        } catch (_) {}
+      }
+    }
+  }
+
+  /// Build the HTTP command URL for [session]. IPv6 tunnel for device,
+  /// loopback for simulator.
+  static String _commandUrl(String host, int port) {
+    final authority = host.contains(':') ? '[$host]' : host;
+    return 'http://$authority:$port/command';
+  }
+
+  /// Probe an HTTP endpoint with a short connect timeout. Returns true
+  /// iff we received any HTTP response (even an error — that still
+  /// proves the listener is up).
+  static Future<bool> _probeRunnerEndpoint(
+    String url, {
+    Duration timeout = const Duration(seconds: 2),
+  }) async {
+    final client = HttpClient()..connectionTimeout = timeout;
+    try {
+      // A POST with empty body gets rejected by the runner, which is
+      // fine — we only care that a response arrived.
+      final req = await client.postUrl(Uri.parse(url)).timeout(timeout);
+      req.headers.set('Content-Type', 'application/json');
+      req.add(utf8.encode('{}'));
+      final res = await req.close().timeout(timeout);
+      await res.drain<void>();
+      return true;
+    } catch (_) {
+      return false;
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  /// POST a JSON [body] to the runner's command endpoint. For simulator
+  /// sessions that's `http://127.0.0.1:<port>/command`; for device it's
+  /// `http://[<tunnelIp>]:<port>/command`. Returns the parsed response.
+  ///
+  /// On a device session we attempt the tunnel endpoint first. If the
+  /// cached tunnel IP fails (e.g. the USB tunnel got recycled), we
+  /// re-resolve it once and retry. Simulator callers never hit the
+  /// fallback path.
   static Future<RunnerResponse> send(
     IosRunnerSession session,
     Map<String, Object?> body, {
     Duration timeout = const Duration(seconds: 30),
   }) async {
+    final endpoints = await _resolveEndpoints(session);
+    Object? lastError;
+    for (final url in endpoints) {
+      try {
+        return await _postCommand(url, body, timeout: timeout);
+      } catch (e) {
+        lastError = e;
+        continue;
+      }
+    }
+    throw AppError(
+      AppErrorCodes.commandFailed,
+      'iOS runner unreachable across ${endpoints.length} endpoint(s).',
+      details: {
+        'udid': session.udid,
+        'kind': session.kind.wire,
+        'port': session.port,
+        'endpoints': endpoints,
+        'lastError': lastError?.toString(),
+      },
+    );
+  }
+
+  static Future<List<String>> _resolveEndpoints(IosRunnerSession s) async {
+    if (s.kind == IosRunnerKind.simulator) {
+      return [_commandUrl('127.0.0.1', s.port)];
+    }
+    // Device: prefer cached tunnel IP, re-resolve as fallback.
+    final list = <String>[];
+    if (s.tunnelIp != null) list.add(_commandUrl(s.tunnelIp!, s.port));
+    final fresh = await resolveDeviceTunnelIp(s.udid, timeoutMs: 4000);
+    if (fresh != null && fresh != s.tunnelIp) {
+      list.add(_commandUrl(fresh, s.port));
+    }
+    // Loopback is a last-resort no-op for device (shouldn't succeed),
+    // included so a totally broken record still fails fast rather than
+    // hanging on tunnel probes.
+    list.add(_commandUrl('127.0.0.1', s.port));
+    return list;
+  }
+
+  static Future<RunnerResponse> _postCommand(
+    String url,
+    Map<String, Object?> body, {
+    required Duration timeout,
+  }) async {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
     try {
-      final req = await client
-          .postUrl(Uri.parse('http://127.0.0.1:${session.port}/command'))
-          .timeout(timeout);
+      final req = await client.postUrl(Uri.parse(url)).timeout(timeout);
       req.headers.set('Content-Type', 'application/json');
       final encoded = utf8.encode(jsonEncode(body));
       req.contentLength = encoded.length;
@@ -332,8 +636,18 @@ class IosRunnerClient {
 
   /// Check whether [session] is still reachable. Used by session-scoped
   /// caching to decide whether to reuse a prior runner.
-  static Future<bool> isAlive(IosRunnerSession session) async =>
-      _probePort(session.port);
+  static Future<bool> isAlive(IosRunnerSession session) async {
+    if (session.kind == IosRunnerKind.simulator) {
+      return _probePort(session.port);
+    }
+    // Device: try the cached tunnel IP via HTTP (IPv6 connects over the
+    // tunnel can hang on raw TCP without the HTTP framing).
+    if (session.tunnelIp == null) return false;
+    return _probeRunnerEndpoint(
+      _commandUrl(session.tunnelIp!, session.port),
+      timeout: const Duration(seconds: 2),
+    );
+  }
 
   static Future<bool> _probePort(int port) async {
     try {

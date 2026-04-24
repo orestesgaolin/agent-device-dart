@@ -18,18 +18,43 @@ Ships as both:
 # 1. Bootstrap the workspace.
 make get
 
-# 2. (iOS only, one-time) Build the XCUITest runner. Needs Xcode.
+# 2. (iOS only, one-time per target) Build the XCUITest runner. Needs Xcode.
+#    Simulator:
 xcodebuild build-for-testing \
   -project ios-runner/AgentDeviceRunner/AgentDeviceRunner.xcodeproj \
   -scheme AgentDeviceRunner \
   -destination "generic/platform=iOS Simulator" \
   -derivedDataPath ios-runner/build
 
+#    Physical device (needs a provisioning profile for `dev.roszkowski.agentdevice.runner`):
+xcodebuild build-for-testing \
+  -project ios-runner/AgentDeviceRunner/AgentDeviceRunner.xcodeproj \
+  -scheme AgentDeviceRunner \
+  -destination "generic/platform=iOS" \
+  -derivedDataPath ios-runner/build-device
+
 # 3. Drive a simulator.
 xcrun simctl boot "iPhone 17"
 dart run packages/agent_device/bin/agent_device.dart \
   devices --platform ios --json
 ```
+
+### Physical iOS device prerequisites
+
+To drive a paired iPhone (`--platform ios --serial <UDID>`) the runner
+needs to be trusted **on the device itself**, one-time:
+
+1. **Enable Developer Mode** — `Settings → Privacy & Security →
+   Developer Mode → On`, then reboot the phone.
+2. **Trust the runner certificate** — after the first `xcodebuild
+   build-for-testing -destination "generic/platform=iOS"` installs
+   `AgentDeviceRunner.app`, open it once from the home screen. You'll
+   hit an "Untrusted Developer" sheet; go to `Settings → General →
+   VPN & Device Management`, tap your developer profile, and trust it.
+3. **Keep the phone unlocked** during test runs.
+
+If any of those are missed you'll see a `COMMAND_FAILED` with hint
+"The UI test runner failed to enable automation mode …".
 
 Every command takes `--platform ios|android`, `--serial <udid|id>`,
 `--session <name>`, and emits either human-readable text or `--json`.
@@ -57,7 +82,7 @@ another both land on the same device.
 | `ensure-simulator <name>`         | n/a                    | ✅                    | n/a                    |
 | `logs --since 30s --out <path>` (one-shot) | ✅ (logcat -T)  | ✅ (simctl log show) | ❌ (use `--stream` instead — Apple has no host-side `log show` for devices) |
 | `logs --stream --out <path>` / `logs --stop` | ✅ (logcat --pid + cross-invocation PID cache) | ✅ (simctl log stream predicate) | ✅ (idevicesyslog via libimobiledevice) |
-| `record start` / `record stop`    | ✅ (screenrecord + pull) | ✅ (XCUITest runner + sandbox pull) | ❌ |
+| `record start` / `record stop`    | ✅ (screenrecord + pull) | ✅ (XCUITest runner + sandbox pull) | ✅ (runner + `devicectl copy from` — needs device trust + Developer Mode) |
 | `perf [--metric cpu\|memory]`      | ✅ (dumpsys)           | ✅ (simctl spawn ps)  | ✅ (1s xctrace + XML; cpu as lifetime seconds) |
 | `network <logPath>` (HTTP from logs) | ✅ (cross-line Android enrichment) | ✅       | ✅                     |
 | `replay <script.ad>` / `test <glob>` | ✅                  | ✅                    | ✅                     |
