@@ -56,9 +56,9 @@ another both land on the same device.
 | `press` / `find` / `get` / `is` / `wait` — selector/@ref targeting | ✅ | ✅ | ✅ |
 | `ensure-simulator <name>`         | n/a                    | ✅                    | n/a                    |
 | `logs --since 30s --out <path>` (one-shot) | ✅ (logcat -T)  | ✅ (simctl log show) | ❌ (streaming TBD)   |
-| `logs --stream --out <path>` / `logs --stop` | ✅ (logcat --pid + cross-invocation PID cache) | ✅ (simctl log stream predicate) | ❌ |
+| `logs --stream --out <path>` / `logs --stop` | ✅ (logcat --pid + cross-invocation PID cache) | ✅ (simctl log stream predicate) | ✅ (idevicesyslog via libimobiledevice) |
 | `record start` / `record stop`    | ✅ (screenrecord + pull) | ✅ (XCUITest runner + sandbox pull) | ❌ |
-| `perf [--metric cpu\|memory]`      | ✅ (dumpsys)           | ✅ (simctl spawn ps)  | ❌ (needs xctrace)     |
+| `perf [--metric cpu\|memory]`      | ✅ (dumpsys)           | ✅ (simctl spawn ps)  | ✅ (1s xctrace + XML; cpu as lifetime seconds) |
 | `network <logPath>` (HTTP from logs) | ✅ (cross-line Android enrichment) | ✅       | ✅                     |
 | `replay <script.ad>` / `test <glob>` | ✅                  | ✅                    | ✅                     |
 | Self-healing replay (`--replay-update`) | ✅               | ✅                    | ✅                     |
@@ -177,15 +177,14 @@ Key design choices vs. the TS source:
 - macOS (`macos-helper` Swift binary + AX API bridge)
 - Linux (`atspi-dump.py`)
 
-**Phase 10 follow-ups** *(Phase 10 MVP + observability core is shipped)*
-- iOS physical-device log streaming (`devicectl device log stream`)
-- iOS physical-device perf via `xctrace activity-monitor-process-live`
-  (simulator perf via `simctl spawn ps` is shipped)
+**Phase 10 follow-ups** *(observability core + streaming is shipped)*
 - `.ipa` install / uninstall / reinstall for physical iOS (needs the
-  install-artifact archive-prep chain)
+  install-artifact archive-prep chain — separate effort)
 - Android pinch multi-touch (runner gap, not a Dart gap)
 - iOS video recording on physical devices (currently simulator-only)
 - iOS record/fps/quality → replay-script flags end-to-end
+- xctrace CPU%: currently only lifetime CPU seconds are reported; a
+  delta % would need two consecutive traces a second apart and a diff
 
 **Phase 11 — React Native / metro integration** *(not started)*
 - `metro.ts` / `metro-companion.ts` / `remote-config*.ts` / `remote-connection-state.ts` port (~1500 LOC of HTTP client + runtime-hint injection). Lets `.ad` scripts bootstrap against a running metro dev server so the launched app loads your current un-bundled JS.
