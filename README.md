@@ -55,7 +55,8 @@ another both land on the same device.
 | `clipboard` get / `--set <text>`  | ✅                     | ✅ (simctl pbpaste/pbcopy) | ❌                  |
 | `press` / `find` / `get` / `is` / `wait` — selector/@ref targeting | ✅ | ✅ | ✅ |
 | `ensure-simulator <name>`         | n/a                    | ✅                    | n/a                    |
-| `logs --since 30s --out <path>`   | ✅ (logcat -T)         | ✅ (simctl log show) | ❌ (streaming TBD)     |
+| `logs --since 30s --out <path>` (one-shot) | ✅ (logcat -T)  | ✅ (simctl log show) | ❌ (streaming TBD)   |
+| `logs --stream --out <path>` / `logs --stop` | ✅ (logcat --pid + cross-invocation PID cache) | ✅ (simctl log stream predicate) | ❌ |
 | `record start` / `record stop`    | ✅ (screenrecord + pull) | ✅ (XCUITest runner + sandbox pull) | ❌ |
 | `perf [--metric cpu\|memory]`      | ✅ (dumpsys)           | ✅ (simctl spawn ps)  | ❌ (needs xctrace)     |
 | `network <logPath>` (HTTP from logs) | ✅ (cross-line Android enrichment) | ✅       | ✅                     |
@@ -177,8 +178,6 @@ Key design choices vs. the TS source:
 - Linux (`atspi-dump.py`)
 
 **Phase 10 follow-ups** *(Phase 10 MVP + observability core is shipped)*
-- Streaming logs (background child + cross-invocation PID file)
-- Per-package logcat filter via `adb shell pidof <pkg>` → `--pid`
 - iOS physical-device log streaming (`devicectl device log stream`)
 - iOS physical-device perf via `xctrace activity-monitor-process-live`
   (simulator perf via `simctl spawn ps` is shipped)
