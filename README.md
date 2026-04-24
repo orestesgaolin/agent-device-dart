@@ -206,7 +206,6 @@ Key design choices vs. the TS source:
 - `.ipa` install / uninstall / reinstall for physical iOS (needs the
   install-artifact archive-prep chain — separate effort)
 - Android pinch multi-touch (runner gap, not a Dart gap)
-- iOS video recording on physical devices (currently simulator-only)
 - iOS record/fps/quality → replay-script flags end-to-end
 - xctrace CPU%: currently only lifetime CPU seconds are reported; a
   delta % would need two consecutive traces a second apart and a diff

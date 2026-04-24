@@ -5,9 +5,10 @@
 //  HTTP/1.1 server backed by raw POSIX sockets. Used in place of
 //  NWListener on iOS physical devices because Apple's Network framework
 //  wraps listeners in NECP (Network Extension Content Policy), which
-//  hides the bound port from lockdown's port-forwarding service. Plain
-//  socket(2)/bind(2)/listen(2)/accept(2) calls bypass NECP entirely
-//  and are reachable via iproxy + lockdown's tcp-relay.
+//  hides the bound port from any external transport — including the
+//  CoreDevice IPv6 tunnel that the host uses to reach the device.
+//  Plain socket(2)/bind(2)/listen(2)/accept(2) calls bypass NECP
+//  entirely and the listener becomes reachable through the tunnel.
 //
 //  The server understands just enough HTTP to satisfy the agent-device
 //  runner protocol: one POST request per connection, Content-Length
@@ -46,10 +47,17 @@ final class RunnerBSDSocketServer {
   }
 
   /// Open the listening socket. Throws on bind/listen failure. After a
-  /// successful return, [port] reflects the actual bound port (matches
-  /// the requested port unless 0 was passed for ephemeral selection).
+  /// successful return, [port] reflects the actual bound port.
+  ///
+  /// We bind on the IPv6 wildcard `::` with `IPV6_V6ONLY = 0`, which on
+  /// Darwin gives a dual-stack listener that accepts BOTH IPv4 and IPv6
+  /// connections on every interface — including loopback (for in-device
+  /// callers) AND the CoreDevice IPv6 tunnel (for host-side reach over
+  /// USB). The previous IPv4-loopback-only bind was invisible to the
+  /// CoreDevice tunnel because that tunnel routes from a non-loopback
+  /// remote IPv6 address.
   func start() throws {
-    let fd = socket(AF_INET, SOCK_STREAM, 0)
+    let fd = socket(AF_INET6, SOCK_STREAM, 0)
     guard fd >= 0 else { throw SocketError.create(errno) }
 
     var yes: Int32 = 1
@@ -62,11 +70,23 @@ final class RunnerBSDSocketServer {
       throw SocketError.setsockopt(err)
     }
 
-    var addr = sockaddr_in()
-    addr.sin_family = sa_family_t(AF_INET)
-    addr.sin_port = port.bigEndian
-    addr.sin_addr.s_addr = inet_addr(host)
-    let addrSize = socklen_t(MemoryLayout<sockaddr_in>.size)
+    // Disable IPV6_V6ONLY so this single listener also accepts IPv4
+    // connections (over the v4-mapped-v6 form ::ffff:x.y.z.w).
+    var off: Int32 = 0
+    if setsockopt(
+      fd, IPPROTO_IPV6, IPV6_V6ONLY,
+      &off, socklen_t(MemoryLayout<Int32>.size)
+    ) < 0 {
+      let err = errno
+      close(fd)
+      throw SocketError.setsockopt(err)
+    }
+
+    var addr = sockaddr_in6()
+    addr.sin6_family = sa_family_t(AF_INET6)
+    addr.sin6_port = port.bigEndian
+    addr.sin6_addr = in6addr_any
+    let addrSize = socklen_t(MemoryLayout<sockaddr_in6>.size)
 
     let bindResult = withUnsafePointer(to: &addr) { ptr -> Int32 in
       ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockaddrPtr in
@@ -85,17 +105,16 @@ final class RunnerBSDSocketServer {
       throw SocketError.listen(err)
     }
 
-    // If the caller asked for an ephemeral port, look up what we got.
     if port == 0 {
-      var bound = sockaddr_in()
-      var len = socklen_t(MemoryLayout<sockaddr_in>.size)
+      var bound = sockaddr_in6()
+      var len = socklen_t(MemoryLayout<sockaddr_in6>.size)
       let r = withUnsafeMutablePointer(to: &bound) { ptr -> Int32 in
         ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) {
           getsockname(fd, $0, &len)
         }
       }
       if r == 0 {
-        port = UInt16(bigEndian: bound.sin_port)
+        port = UInt16(bigEndian: bound.sin6_port)
       }
     }
 

@@ -99,10 +99,10 @@ final class RunnerTests: XCTestCase {
 
     // Physical iOS device: use a raw BSD-socket HTTP server. NWListener
     // on iOS device gets wrapped by NECP (Network Extension Content
-    // Policy), which hides the bound port from lockdown's port-relay
-    // service so iproxy / CoreDevice tunnel can't reach it. POSIX
-    // socket(2)/bind(2)/listen(2)/accept(2) bypasses NECP and the
-    // listener becomes reachable.
+    // Policy), which hides the bound port from external transports —
+    // including the CoreDevice IPv6 tunnel the host uses to reach the
+    // device. POSIX socket(2)/bind(2)/listen(2)/accept(2) bypasses
+    // NECP and the listener becomes reachable through the tunnel.
     //
     // Simulator + macOS: NWListener works (the sim shares the host
     // network stack; macOS doesn't sandbox UI tests this way). Keep
@@ -219,18 +219,10 @@ final class RunnerTests: XCTestCase {
     return Data("{}".utf8)
   }
 
+  // Used for simulator + macOS only — physical device goes through
+  // RunnerBSDSocketServer (see `testCommand`).
   private func makeRunnerListener(desiredPort: UInt16) throws -> NWListener {
     if desiredPort > 0, let port = NWEndpoint.Port(rawValue: desiredPort) {
-      // Pin every variant to 127.0.0.1 explicitly. On macOS this was
-      // already the case; on iOS the previous `NWListener(using: .tcp,
-      // on: port)` form left interface selection up to Network.framework,
-      // which under a UITest sandbox routes through NECP. NECP doesn't
-      // register the listener with lockdown's port-forwarding service
-      // (visible as `setsockopt SO_NECP_LISTENUUID failed` in the log),
-      // so the bound port is invisible to host-side iproxy / CoreDevice
-      // tunnel even though the runner thinks it's listening. Explicit
-      // loopback binding skips NECP wrapping and the listener becomes
-      // reachable through usbmux.
       let parameters = NWParameters.tcp
       parameters.allowLocalEndpointReuse = true
       parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: port)
