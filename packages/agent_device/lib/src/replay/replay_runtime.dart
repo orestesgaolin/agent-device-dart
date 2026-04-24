@@ -314,6 +314,12 @@ Future<List<String>> _dispatch({
       await device.closeApp(positionals.isEmpty ? null : positionals.first);
       return const [];
 
+    case 'appstate':
+      // Read-only probe. Useful as an assertion step (human-readable diff
+      // lands in the JSON envelope, no side effects on the device).
+      await device.getAppState(positionals.isEmpty ? null : positionals.first);
+      return const [];
+
     case 'home':
       await device.pressHome();
       return const [];

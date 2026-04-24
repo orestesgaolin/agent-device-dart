@@ -53,6 +53,20 @@ void main() {
       ]);
     });
 
+    test('appstate dispatches a read-only getAppState call', () async {
+      final backend = _RecordingBackend();
+      final device = await openDevice(backend);
+      final script = File('${tmp.path}/appstate.ad');
+      await script.writeAsString('appstate\n');
+      final result = await runReplayScript(
+        scriptPath: script.path,
+        device: device,
+      );
+      expect(result.ok, isTrue);
+      expect(backend.calls, hasLength(1));
+      expect(backend.calls.first.name, 'getAppState');
+    });
+
     test('scroll dispatches direction + amount', () async {
       final backend = _RecordingBackend();
       final device = await openDevice(backend);
@@ -317,6 +331,15 @@ class _RecordingBackend extends Backend {
   ) async {
     _record('captureSnapshot', {'options': options});
     return const BackendSnapshotResult(nodes: [], truncated: false);
+  }
+
+  @override
+  Future<BackendAppState> getAppState(
+    BackendCommandContext ctx,
+    String app,
+  ) async {
+    _record('getAppState', {'app': app});
+    return const BackendAppState(state: 'foreground');
   }
 
   @override
