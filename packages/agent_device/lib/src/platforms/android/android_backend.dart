@@ -17,6 +17,7 @@ import 'device_input_state.dart';
 import 'devices.dart';
 import 'input_actions.dart';
 import 'notifications.dart';
+import 'perf.dart';
 import 'screenshot.dart';
 import 'snapshot.dart';
 
@@ -533,6 +534,82 @@ class AndroidBackend extends Backend {
       );
     }
     return BackendRecordingResult(path: outPath);
+  }
+
+  // =========================================================================
+  // Diagnostics: Performance sampling (dumpsys)
+  // =========================================================================
+
+  /// Sample CPU% and memory (PSS kB) for the session's open app. Uses
+  /// `adb shell dumpsys cpuinfo` + `adb shell dumpsys meminfo <package>`
+  /// — both cheap one-shot snapshots; no sampling window.
+  @override
+  Future<BackendMeasurePerfResult> measurePerf(
+    BackendCommandContext ctx,
+    BackendMeasurePerfOptions? options,
+  ) async {
+    final serial = _serial(ctx);
+    final packageName = ctx.appId;
+    if (packageName == null || packageName.isEmpty) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'Android measurePerf requires an open app '
+        '(run `agent-device open <package>` first).',
+      );
+    }
+    final requested = options?.metrics?.map((e) => e.toLowerCase()).toSet();
+    final wantCpu = requested == null || requested.contains('cpu');
+    final wantMemory = requested == null || requested.contains('memory');
+
+    final metrics = <BackendPerfMetric>[];
+    String? startedAt;
+    String? endedAt;
+
+    if (wantCpu) {
+      final cpu = await sampleAndroidCpuPerf(serial, packageName);
+      metrics.add(
+        BackendPerfMetric(
+          name: 'cpu',
+          value: cpu.usagePercent,
+          unit: 'percent',
+          status: 'ok',
+          metadata: {
+            'method': cpu.method,
+            'description': androidCpuSampleDescription,
+            'matchedProcesses': cpu.matchedProcesses,
+            'measuredAt': cpu.measuredAt,
+          },
+        ),
+      );
+      startedAt ??= cpu.measuredAt;
+      endedAt = cpu.measuredAt;
+    }
+    if (wantMemory) {
+      final mem = await sampleAndroidMemoryPerf(serial, packageName);
+      metrics.add(
+        BackendPerfMetric(
+          name: 'memory.totalPss',
+          value: mem.totalPssKb.toDouble(),
+          unit: 'kB',
+          status: 'ok',
+          metadata: {
+            'method': mem.method,
+            'description': androidMemorySampleDescription,
+            if (mem.totalRssKb != null) 'totalRssKb': mem.totalRssKb,
+            'measuredAt': mem.measuredAt,
+          },
+        ),
+      );
+      startedAt ??= mem.measuredAt;
+      endedAt = mem.measuredAt;
+    }
+
+    return BackendMeasurePerfResult(
+      metrics: metrics,
+      startedAt: startedAt,
+      endedAt: endedAt,
+      backend: 'android-dumpsys',
+    );
   }
 
   // =========================================================================

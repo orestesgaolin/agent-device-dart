@@ -19,6 +19,7 @@ import 'package:path/path.dart' as p;
 import 'app_lifecycle.dart';
 import 'devicectl.dart';
 import 'devices.dart';
+import 'perf.dart';
 import 'runner_client.dart';
 import 'screenshot.dart';
 
@@ -403,6 +404,86 @@ class IosBackend extends Backend {
     } catch (_) {
       return null;
     }
+  }
+
+  // =========================================================================
+  // Diagnostics: Performance sampling (simctl spawn ps)
+  // =========================================================================
+
+  /// Sample CPU% and resident memory (kB) for the session's open app on
+  /// an iOS simulator. Physical devices aren't wired yet (TS uses
+  /// `xctrace record --template "Activity Monitor"`, which needs XML
+  /// trace export + schema-aware parsing — deferred).
+  @override
+  Future<BackendMeasurePerfResult> measurePerf(
+    BackendCommandContext ctx,
+    BackendMeasurePerfOptions? options,
+  ) async {
+    final udid = _udid(ctx);
+    final kind = await _resolveKind(udid);
+    if (kind == 'device') {
+      throw AppError(
+        AppErrorCodes.unsupportedOperation,
+        'iOS physical-device perf sampling is not yet wired (needs xctrace + '
+        'trace export parsing). Use a simulator for now.',
+      );
+    }
+    final bundleId = ctx.appBundleId ?? ctx.appId;
+    if (bundleId == null || bundleId.isEmpty) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'iOS measurePerf requires an open app '
+        '(run `agent-device open <bundleId>` first).',
+      );
+    }
+    final requested = options?.metrics?.map((e) => e.toLowerCase()).toSet();
+    final wantCpu = requested == null || requested.contains('cpu');
+    final wantMemory = requested == null || requested.contains('memory');
+
+    final sample = await sampleIosSimulatorPerfMetrics(udid, bundleId);
+    final metrics = <BackendPerfMetric>[];
+    if (wantCpu) {
+      metrics.add(
+        BackendPerfMetric(
+          name: 'cpu',
+          value: sample.cpu.usagePercent,
+          unit: 'percent',
+          status: 'ok',
+          metadata: {
+            'method': sample.cpu.method,
+            'description':
+                'Recent CPU usage snapshot aggregated across the bundle\'s '
+                'processes inside the iOS simulator.',
+            'matchedProcesses': sample.cpu.matchedProcesses,
+            'measuredAt': sample.cpu.measuredAt,
+          },
+        ),
+      );
+    }
+    if (wantMemory) {
+      metrics.add(
+        BackendPerfMetric(
+          name: 'memory.resident',
+          value: sample.memory.residentMemoryKb.toDouble(),
+          unit: 'kB',
+          status: 'ok',
+          metadata: {
+            'method': sample.memory.method,
+            'description':
+                'Resident memory snapshot aggregated across the bundle\'s '
+                'processes inside the iOS simulator.',
+            'matchedProcesses': sample.memory.matchedProcesses,
+            'measuredAt': sample.memory.measuredAt,
+          },
+        ),
+      );
+    }
+    return BackendMeasurePerfResult(
+      metrics: metrics,
+      startedAt: sample.cpu.measuredAt,
+      endedAt: sample.cpu.measuredAt,
+      backend: 'ios-simulator-ps',
+    );
   }
 
   // =========================================================================

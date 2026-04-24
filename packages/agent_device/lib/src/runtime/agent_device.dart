@@ -388,6 +388,20 @@ class AgentDevice {
   // Diagnostics
   // =========================================================================
 
+  /// Sample CPU and memory usage for the session's open app.
+  /// `metrics` narrows the set (e.g. `['cpu']` or `['memory']`); null
+  /// samples both. iOS simulator uses `simctl spawn ps`; Android uses
+  /// `adb shell dumpsys cpuinfo|meminfo`.
+  Future<BackendMeasurePerfResult> measurePerf({
+    List<String>? metrics,
+    int? sampleMs,
+  }) async {
+    return backend.measurePerf(
+      await _ctx(),
+      BackendMeasurePerfOptions(metrics: metrics, sampleMs: sampleMs),
+    );
+  }
+
   /// Dump recent device logs filtered to the session's current app.
   /// [since] can be `30s` / `5m` / `1h` for a relative window, or an
   /// absolute timestamp (`@<epoch>` or `YYYY-MM-DD HH:MM:SS`). iOS
