@@ -24,12 +24,25 @@ import 'perf.dart';
 import 'runner_client.dart';
 import 'screenshot.dart';
 
-/// Bundle id of the XCUITest runner app installed on a physical iOS
-/// device when recording. Matches the `PRODUCT_BUNDLE_IDENTIFIER`
-/// configured for the `AgentDeviceRunner` Xcode target — if that's
-/// ever renamed, the devicectl copy path used by stopRecording needs
-/// to follow.
-const String _iosRunnerBundleId = 'dev.roszkowski.agentdevice.runner';
+/// Candidate container bundle ids used by `devicectl device copy from
+/// --domain-type appDataContainer` when pulling a recording off a
+/// physical iOS device. The UI-test runner process writes to the
+/// *.xctrunner* container's tmp dir; we try that first, then fall
+/// back to the main app container. Matches the TS port's
+/// `IOS_RUNNER_CONTAINER_BUNDLE_IDS` ordering.
+///
+/// If the Xcode project ever renames these targets, update both lists
+/// in lockstep. An environment override lets advanced users inject an
+/// extra candidate without touching the source.
+List<String> _iosRunnerContainerBundleIds() {
+  final override =
+      Platform.environment['AGENT_DEVICE_IOS_RUNNER_CONTAINER_BUNDLE_ID'];
+  return <String>[
+    if (override != null && override.trim().isNotEmpty) override.trim(),
+    'dev.roszkowski.agentdevice.runner.uitests.xctrunner',
+    'dev.roszkowski.agentdevice.runner',
+  ];
+}
 
 class IosBackend extends Backend {
   const IosBackend();
@@ -316,13 +329,19 @@ class IosBackend extends Backend {
     // We pull the file out on stop using the runner log's
     // `resolvedOutPath=` trace line.
     final fileName = p.basename(outPath);
+    // ScreenRecorder.start on a physical device can take 10-20s to
+    // initialize AVAssetWriter + begin the display stream, much slower
+    // than the simulator. Give it a generous window.
+    final recordTimeout = session.kind == IosRunnerKind.device
+        ? const Duration(seconds: 90)
+        : const Duration(seconds: 30);
     RunnerResponse res = await IosRunnerClient.send(session, {
       'command': 'recordStart',
       'outPath': fileName,
       'appBundleId': bundleId,
       if (options?.fps != null) 'fps': options!.fps,
       if (options?.quality != null) 'quality': options!.quality,
-    });
+    }, timeout: recordTimeout);
     // If the runner still had a stale recording from a prior invocation,
     // clear it with one recordStop and retry — matches TS
     // `isRunnerRecordingAlreadyInProgressError` recovery.
@@ -331,14 +350,14 @@ class IosBackend extends Backend {
       await IosRunnerClient.send(session, {
         'command': 'recordStop',
         'appBundleId': bundleId,
-      });
+      }, timeout: recordTimeout);
       res = await IosRunnerClient.send(session, {
         'command': 'recordStart',
         'outPath': fileName,
         'appBundleId': bundleId,
         if (options?.fps != null) 'fps': options!.fps,
         if (options?.quality != null) 'quality': options!.quality,
-      });
+      }, timeout: recordTimeout);
     }
     if (!res.ok) {
       throw AppError(
@@ -364,10 +383,13 @@ class IosBackend extends Backend {
         'startRecording).',
       );
     }
+    final stopTimeout = session.kind == IosRunnerKind.device
+        ? const Duration(seconds: 60)
+        : const Duration(seconds: 30);
     final res = await IosRunnerClient.send(session, {
       'command': 'recordStop',
       if (bundleId != null) 'appBundleId': bundleId,
-    });
+    }, timeout: stopTimeout);
     if (!res.ok) {
       throw AppError(
         AppErrorCodes.commandFailed,
@@ -393,33 +415,45 @@ class IosBackend extends Backend {
     if (session.kind == IosRunnerKind.device) {
       // On device `resolved` is an on-device absolute path inside the
       // runner's sandbox (`/private/var/mobile/.../tmp/<file>.mp4`).
-      // The app-data-container-relative form is `tmp/<basename>`.
+      // The app-data-container-relative form is `tmp/<basename>`. The
+      // xctrunner bundle owns the UITest process's NSTemporaryDirectory
+      // so we try it first, then fall back to the main app bundle.
       final remotePath = 'tmp/${p.basename(resolved)}';
-      final pull = await runCmd('xcrun', [
-        'devicectl',
-        'device',
-        'copy',
-        'from',
-        '--device',
-        _udid(ctx),
-        '--source',
-        remotePath,
-        '--destination',
-        outPath,
-        '--domain-type',
-        'appDataContainer',
-        '--domain-identifier',
-        _iosRunnerBundleId,
-      ], const ExecOptions(allowFailure: true, timeoutMs: 60000));
-      if (pull.exitCode != 0) {
-        return BackendRecordingResult(
-          path: outPath,
-          warning:
-              'devicectl copy from $remotePath failed (exit ${pull.exitCode}): '
-              '${pull.stderr.trim()}',
-        );
+      final bundles = _iosRunnerContainerBundleIds();
+      int? lastExit;
+      String lastStderr = '';
+      String lastBundle = '';
+      for (final bundleCandidate in bundles) {
+        final pull = await runCmd('xcrun', [
+          'devicectl',
+          'device',
+          'copy',
+          'from',
+          '--device',
+          _udid(ctx),
+          '--source',
+          remotePath,
+          '--destination',
+          outPath,
+          '--domain-type',
+          'appDataContainer',
+          '--domain-identifier',
+          bundleCandidate,
+        ], const ExecOptions(allowFailure: true, timeoutMs: 60000));
+        if (pull.exitCode == 0) {
+          return BackendRecordingResult(path: outPath);
+        }
+        lastExit = pull.exitCode;
+        lastStderr = pull.stderr.trim();
+        lastBundle = bundleCandidate;
       }
-      return BackendRecordingResult(path: outPath);
+      return BackendRecordingResult(
+        path: outPath,
+        warning:
+            'devicectl copy from $remotePath failed across ${bundles.length} '
+            'container bundle(s). Last tried "$lastBundle" '
+            '(exit $lastExit): $lastStderr',
+      );
     }
 
     // Simulator: the runner wrote into its on-sim-host sandbox, which

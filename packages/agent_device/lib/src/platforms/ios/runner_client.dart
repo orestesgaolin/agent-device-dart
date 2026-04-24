@@ -501,20 +501,19 @@ class IosRunnerClient {
 
   /// Probe an HTTP endpoint with a short connect timeout. Returns true
   /// iff we received any HTTP response (even an error — that still
-  /// proves the listener is up).
+  /// proves the listener is up). Every awaitable step is bounded so a
+  /// half-open connection can never block the launch poller.
   static Future<bool> _probeRunnerEndpoint(
     String url, {
     Duration timeout = const Duration(seconds: 2),
   }) async {
     final client = HttpClient()..connectionTimeout = timeout;
     try {
-      // A POST with empty body gets rejected by the runner, which is
-      // fine — we only care that a response arrived.
       final req = await client.postUrl(Uri.parse(url)).timeout(timeout);
       req.headers.set('Content-Type', 'application/json');
       req.add(utf8.encode('{}'));
       final res = await req.close().timeout(timeout);
-      await res.drain<void>();
+      await res.drain<void>().timeout(timeout);
       return true;
     } catch (_) {
       return false;
@@ -525,56 +524,28 @@ class IosRunnerClient {
 
   /// POST a JSON [body] to the runner's command endpoint. For simulator
   /// sessions that's `http://127.0.0.1:<port>/command`; for device it's
-  /// `http://[<tunnelIp>]:<port>/command`. Returns the parsed response.
+  /// `http://[<tunnelIp>]:<port>/command`.
   ///
-  /// On a device session we attempt the tunnel endpoint first. If the
-  /// cached tunnel IP fails (e.g. the USB tunnel got recycled), we
-  /// re-resolve it once and retry. Simulator callers never hit the
-  /// fallback path.
+  /// Uses the single cached endpoint — no per-send tunnel re-resolve,
+  /// no fallback chain. If the cached tunnel IP ever goes stale the
+  /// caller should explicitly reset the session; silently retrying
+  /// against stale addresses with 30-second timeouts just hangs the
+  /// user's terminal.
   static Future<RunnerResponse> send(
     IosRunnerSession session,
     Map<String, Object?> body, {
     Duration timeout = const Duration(seconds: 30),
   }) async {
-    final endpoints = await _resolveEndpoints(session);
-    Object? lastError;
-    for (final url in endpoints) {
-      try {
-        return await _postCommand(url, body, timeout: timeout);
-      } catch (e) {
-        lastError = e;
-        continue;
-      }
-    }
-    throw AppError(
-      AppErrorCodes.commandFailed,
-      'iOS runner unreachable across ${endpoints.length} endpoint(s).',
-      details: {
-        'udid': session.udid,
-        'kind': session.kind.wire,
-        'port': session.port,
-        'endpoints': endpoints,
-        'lastError': lastError?.toString(),
-      },
-    );
+    final url = _sessionEndpoint(session);
+    return _postCommand(url, body, timeout: timeout);
   }
 
-  static Future<List<String>> _resolveEndpoints(IosRunnerSession s) async {
+  static String _sessionEndpoint(IosRunnerSession s) {
     if (s.kind == IosRunnerKind.simulator) {
-      return [_commandUrl('127.0.0.1', s.port)];
+      return _commandUrl('127.0.0.1', s.port);
     }
-    // Device: prefer cached tunnel IP, re-resolve as fallback.
-    final list = <String>[];
-    if (s.tunnelIp != null) list.add(_commandUrl(s.tunnelIp!, s.port));
-    final fresh = await resolveDeviceTunnelIp(s.udid, timeoutMs: 4000);
-    if (fresh != null && fresh != s.tunnelIp) {
-      list.add(_commandUrl(fresh, s.port));
-    }
-    // Loopback is a last-resort no-op for device (shouldn't succeed),
-    // included so a totally broken record still fails fast rather than
-    // hanging on tunnel probes.
-    list.add(_commandUrl('127.0.0.1', s.port));
-    return list;
+    final host = s.tunnelIp ?? '127.0.0.1';
+    return _commandUrl(host, s.port);
   }
 
   static Future<RunnerResponse> _postCommand(
