@@ -31,6 +31,7 @@ final class RunnerTests: XCTestCase {
   static let springboardBundleId = "com.apple.springboard"
   static let defaultRecordingFps: Int32 = 15
   var listener: NWListener?
+  var bsdServer: RunnerBSDSocketServer?
   var doneExpectation: XCTestExpectation?
   let app = XCUIApplication()
   lazy var springboard = XCUIApplication(bundleIdentifier: Self.springboardBundleId)
@@ -95,6 +96,40 @@ final class RunnerTests: XCTestCase {
     let queue = DispatchQueue(label: "agent-device.runner")
     let desiredPort = RunnerEnv.resolvePort()
     NSLog("AGENT_DEVICE_RUNNER_DESIRED_PORT=%d", desiredPort)
+
+    // Physical iOS device: use a raw BSD-socket HTTP server. NWListener
+    // on iOS device gets wrapped by NECP (Network Extension Content
+    // Policy), which hides the bound port from lockdown's port-relay
+    // service so iproxy / CoreDevice tunnel can't reach it. POSIX
+    // socket(2)/bind(2)/listen(2)/accept(2) bypasses NECP and the
+    // listener becomes reachable.
+    //
+    // Simulator + macOS: NWListener works (the sim shares the host
+    // network stack; macOS doesn't sandbox UI tests this way). Keep
+    // it for those targets so we don't lose framing/QoS niceties.
+    #if targetEnvironment(simulator) || os(macOS)
+      try startNWListener(desiredPort: desiredPort, queue: queue)
+    #else
+      try startBSDSocketServer(desiredPort: desiredPort)
+    #endif
+
+    guard let expectation = doneExpectation else {
+      XCTFail("runner expectation was not initialized")
+      return
+    }
+    NSLog("AGENT_DEVICE_RUNNER_WAITING")
+    let result = XCTWaiter.wait(for: [expectation], timeout: 24 * 60 * 60)
+    NSLog("AGENT_DEVICE_RUNNER_WAIT_RESULT=%@", String(describing: result))
+    bsdServer?.stop()
+    if result != .completed {
+      XCTFail("runner wait ended with \(result)")
+    }
+  }
+
+  private func startNWListener(
+    desiredPort: UInt16,
+    queue: DispatchQueue
+  ) throws {
     listener = try makeRunnerListener(desiredPort: desiredPort)
     listener?.stateUpdateHandler = { [weak self] state in
       switch state {
@@ -117,17 +152,71 @@ final class RunnerTests: XCTestCase {
       self?.handle(connection: conn)
     }
     listener?.start(queue: queue)
+  }
 
-    guard let expectation = doneExpectation else {
-      XCTFail("runner expectation was not initialized")
-      return
+  private func startBSDSocketServer(desiredPort: UInt16) throws {
+    let server = RunnerBSDSocketServer(
+      host: "127.0.0.1",
+      port: desiredPort,
+      maxRequestBytes: maxRequestBytes
+    ) { [weak self] body in
+      guard let self = self else {
+        let payload = "{\"ok\":false,\"error\":{\"message\":\"runner gone\"}}"
+        return (500, Data(payload.utf8), false)
+      }
+      let result = self.handleRequestBodyForBSD(body)
+      return (result.status, result.body, result.shouldFinish)
     }
-    NSLog("AGENT_DEVICE_RUNNER_WAITING")
-    let result = XCTWaiter.wait(for: [expectation], timeout: 24 * 60 * 60)
-    NSLog("AGENT_DEVICE_RUNNER_WAIT_RESULT=%@", String(describing: result))
-    if result != .completed {
-      XCTFail("runner wait ended with \(result)")
+    do {
+      try server.start()
+    } catch {
+      NSLog("AGENT_DEVICE_RUNNER_LISTENER_FAILED=%@", String(describing: error))
+      doneExpectation?.fulfill()
+      throw error
     }
+    bsdServer = server
+    NSLog("AGENT_DEVICE_RUNNER_LISTENER_READY")
+    NSLog("AGENT_DEVICE_RUNNER_PORT=%d", server.port)
+  }
+
+  /// BSD-socket variant of `handleRequestBody`. Mirrors the existing
+  /// NWConnection path: decode the JSON command, execute, encode the
+  /// response. Returns (status, body, shouldFinish) so the BSD server
+  /// can fulfil the doneExpectation when the shutdown command lands.
+  func handleRequestBodyForBSD(_ body: Data)
+    -> (status: Int, body: Data, shouldFinish: Bool)
+  {
+    guard let json = String(data: body, encoding: .utf8),
+          let data = json.data(using: .utf8) else {
+      let r = Response(ok: false, error: ErrorPayload(message: "invalid json"))
+      return (400, encodeResponseBody(r), false)
+    }
+    do {
+      let command = try JSONDecoder().decode(Command.self, from: data)
+      let response = try execute(command: command)
+      let isShutdown = command.command == .shutdown
+      if isShutdown {
+        // NWConnection variant fulfils on the send-completion callback;
+        // the BSD path doesn't have that, so we do it after returning
+        // the response so the body still gets written.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+          self?.bsdServer?.stop()
+          self?.doneExpectation?.fulfill()
+        }
+      }
+      return (200, encodeResponseBody(response), isShutdown)
+    } catch {
+      let r = Response(ok: false, error: ErrorPayload(message: "\(error)"))
+      return (500, encodeResponseBody(r), false)
+    }
+  }
+
+  private func encodeResponseBody(_ response: Response) -> Data {
+    let encoder = JSONEncoder()
+    if let data = try? encoder.encode(response) {
+      return data
+    }
+    return Data("{}".utf8)
   }
 
   private func makeRunnerListener(desiredPort: UInt16) throws -> NWListener {

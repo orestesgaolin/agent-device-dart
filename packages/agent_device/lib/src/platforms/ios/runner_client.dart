@@ -289,6 +289,14 @@ class IosRunnerClient {
       '[runner] launching xcodebuild  kind=${kind.wire}  udid=$udid  '
       'port=$port  xctestrun=$xctestrunPath',
     );
+    // Disable code coverage on device — iOS 17+ refuses to create the
+    // runtime-profile directory in the runner's sandbox and that
+    // surfaces as `Failed to create directory on device ... to hold
+    // runtime profiles` followed by **TEST EXECUTE FAILED**, even when
+    // the runner itself is up. We don't ship coverage data anyway.
+    final coverageFlag = kind == IosRunnerKind.device
+        ? '-enableCodeCoverage NO '
+        : '';
     final proc = await runCmdDetached('sh', [
       '-c',
       'exec xcodebuild test-without-building '
@@ -297,6 +305,7 @@ class IosRunnerClient {
           "-only-testing 'AgentDeviceRunnerUITests/RunnerTests/testCommand' "
           '-parallel-testing-enabled NO '
           '-test-timeouts-enabled NO '
+          '$coverageFlag'
           '> ${_shq(logPath)} 2>&1',
     ], const ExecDetachedOptions());
     _debugLog('[runner] xcodebuild pid=${proc.pid}  log=$logPath');
