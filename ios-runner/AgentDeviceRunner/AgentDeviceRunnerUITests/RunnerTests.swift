@@ -132,14 +132,20 @@ final class RunnerTests: XCTestCase {
 
   private func makeRunnerListener(desiredPort: UInt16) throws -> NWListener {
     if desiredPort > 0, let port = NWEndpoint.Port(rawValue: desiredPort) {
-      #if os(macOS)
-        let parameters = NWParameters.tcp
-        parameters.allowLocalEndpointReuse = true
-        parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: port)
-        return try NWListener(using: parameters)
-      #else
-        return try NWListener(using: .tcp, on: port)
-      #endif
+      // Pin every variant to 127.0.0.1 explicitly. On macOS this was
+      // already the case; on iOS the previous `NWListener(using: .tcp,
+      // on: port)` form left interface selection up to Network.framework,
+      // which under a UITest sandbox routes through NECP. NECP doesn't
+      // register the listener with lockdown's port-forwarding service
+      // (visible as `setsockopt SO_NECP_LISTENUUID failed` in the log),
+      // so the bound port is invisible to host-side iproxy / CoreDevice
+      // tunnel even though the runner thinks it's listening. Explicit
+      // loopback binding skips NECP wrapping and the listener becomes
+      // reachable through usbmux.
+      let parameters = NWParameters.tcp
+      parameters.allowLocalEndpointReuse = true
+      parameters.requiredLocalEndpoint = .hostPort(host: "127.0.0.1", port: port)
+      return try NWListener(using: parameters)
     }
     return try NWListener(using: .tcp)
   }
