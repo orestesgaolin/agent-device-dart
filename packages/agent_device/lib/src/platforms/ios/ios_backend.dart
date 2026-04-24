@@ -411,12 +411,18 @@ class IosBackend extends Backend {
   // Diagnostics: Log streaming (background)
   // =========================================================================
 
-  /// Start tailing os_log for the session's app into [options.outPath].
-  /// Forks `xcrun simctl spawn <udid> log stream --predicate …` writing
-  /// to the host file; the PID is persisted at
+  /// Start tailing device logs for the ctx's iOS device into
+  /// [options.outPath]. The PID is persisted at
   /// `<stateDir>/log-streams/<udid>.json` so a later invocation can
   /// [stopLogStream]. If an existing record is present we SIGINT its
   /// pid first so we don't leak tails.
+  ///
+  /// Simulator: `xcrun simctl spawn <udid> log stream --predicate …`
+  /// filtered to the session's open app bundle id.
+  ///
+  /// Physical device: `xcrun devicectl device log stream --device <id>`.
+  /// devicectl doesn't accept an os_log predicate, so the full stream
+  /// is captured; filtering to a bundle id is a post-hoc grep job.
   @override
   Future<BackendLogStreamResult> startLogStream(
     BackendCommandContext ctx,
@@ -424,21 +430,6 @@ class IosBackend extends Backend {
   ) async {
     final udid = _udid(ctx);
     final kind = await _resolveKind(udid);
-    if (kind == 'device') {
-      throw AppError(
-        AppErrorCodes.unsupportedOperation,
-        'iOS physical-device log streaming is not yet wired (needs '
-        '`xcrun devicectl device log stream --device $udid`).',
-      );
-    }
-    final bundleId = options.appBundleId ?? ctx.appBundleId ?? ctx.appId;
-    if (bundleId == null || bundleId.isEmpty) {
-      throw AppError(
-        AppErrorCodes.invalidArgs,
-        'iOS startLogStream requires an open app (run '
-        '`agent-device open <bundleId>` first).',
-      );
-    }
     final outPath = options.outPath;
     if (outPath == null || outPath.isEmpty) {
       throw AppError(
@@ -454,22 +445,59 @@ class IosBackend extends Backend {
       await deleteLogStreamRecord(udid);
     }
 
-    final predicate = [
-      'subsystem == "$bundleId"',
-      'processImagePath ENDSWITH[c] "/$bundleId"',
-      'senderImagePath ENDSWITH[c] "/$bundleId"',
-    ].join(' OR ');
-    // Use `sh -c` so we can redirect stdout to the host file in one
-    // detached process. The inner command is `xcrun simctl spawn <udid>
-    // log stream ... > outPath 2>&1`.
     final outFile = File(outPath);
     await outFile.parent.create(recursive: true);
-    final script =
-        'exec xcrun simctl spawn '
-        '${_shellQuote(udid)} log stream '
-        '--style compact --level info '
-        '--predicate ${_shellQuote(predicate)} '
-        '> ${_shellQuote(outPath)} 2>&1';
+
+    final String script;
+    final String backendLabel;
+    final String? bundleId;
+    if (kind == 'device') {
+      // Xcode's `devicectl` has no `log stream` subcommand (at least
+      // through Xcode 16.x), so we fall back to `idevicesyslog` from
+      // libimobiledevice. Probe its presence early so the error is
+      // helpful rather than a cryptic child-process exit.
+      final which = await runCmd('which', const [
+        'idevicesyslog',
+      ], const ExecOptions(allowFailure: true, timeoutMs: 2000));
+      if (which.exitCode != 0 || which.stdout.trim().isEmpty) {
+        throw AppError(
+          AppErrorCodes.toolMissing,
+          'iOS physical-device log streaming needs `idevicesyslog` (not '
+          'shipped with Xcode). Install libimobiledevice: '
+          '`brew install libimobiledevice`, then retry.',
+        );
+      }
+      final binPath = which.stdout.trim().split('\n').first;
+      // idevicesyslog doesn't support predicate filtering; caller greps
+      // post-hoc. appBundleId goes on the disk record for reference.
+      bundleId = options.appBundleId ?? ctx.appBundleId ?? ctx.appId;
+      script =
+          'exec ${_shellQuote(binPath)} -u ${_shellQuote(udid)} '
+          '> ${_shellQuote(outPath)} 2>&1';
+      backendLabel = 'ios-device-log-stream-idevicesyslog';
+    } else {
+      bundleId = options.appBundleId ?? ctx.appBundleId ?? ctx.appId;
+      if (bundleId == null || bundleId.isEmpty) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'iOS simulator startLogStream requires an open app (run '
+          '`agent-device open <bundleId>` first).',
+        );
+      }
+      final predicate = [
+        'subsystem == "$bundleId"',
+        'processImagePath ENDSWITH[c] "/$bundleId"',
+        'senderImagePath ENDSWITH[c] "/$bundleId"',
+      ].join(' OR ');
+      script =
+          'exec xcrun simctl spawn '
+          '${_shellQuote(udid)} log stream '
+          '--style compact --level info '
+          '--predicate ${_shellQuote(predicate)} '
+          '> ${_shellQuote(outPath)} 2>&1';
+      backendLabel = 'ios-simulator-log-stream';
+    }
+
     final proc = await runCmdDetached('sh', [
       '-c',
       script,
@@ -488,7 +516,7 @@ class IosBackend extends Backend {
     return BackendLogStreamResult(
       outPath: outPath,
       hostPid: proc.pid,
-      backend: 'ios-simulator-log-stream',
+      backend: backendLabel,
       startedAt: startedAt,
     );
   }
@@ -512,10 +540,16 @@ class IosBackend extends Backend {
     int? bytes;
     final f = File(record.outPath);
     if (await f.exists()) bytes = await f.length();
+    // Re-derive the backend label from the device kind so stop reports
+    // the same variant that start recorded (simulator vs physical).
+    final kind = await _resolveKind(udid);
+    final backend = kind == 'device'
+        ? 'ios-device-log-stream-idevicesyslog'
+        : 'ios-simulator-log-stream';
     return BackendLogStreamResult(
       outPath: record.outPath,
       hostPid: record.hostPid,
-      backend: 'ios-simulator-log-stream',
+      backend: backend,
       startedAt: record.startedAt,
       stoppedAt: DateTime.now().toUtc().toIso8601String(),
       bytes: bytes,
