@@ -57,6 +57,7 @@ another both land on the same device.
 | `ensure-simulator <name>`         | n/a                    | ✅                    | n/a                    |
 | `logs --since 30s --out <path>`   | ✅ (logcat -T)         | ✅ (simctl log show) | ❌ (streaming TBD)     |
 | `record start` / `record stop`    | ✅ (screenrecord + pull) | ✅ (XCUITest runner + sandbox pull) | ❌ |
+| `perf [--metric cpu\|memory]`      | ✅ (dumpsys)           | ✅ (simctl spawn ps)  | ❌ (needs xctrace)     |
 | `network <logPath>` (HTTP from logs) | ✅ (cross-line Android enrichment) | ✅       | ✅                     |
 | `replay <script.ad>` / `test <glob>` | ✅                  | ✅                    | ✅                     |
 | Self-healing replay (`--replay-update`) | ✅               | ✅                    | ✅                     |
@@ -179,8 +180,8 @@ Key design choices vs. the TS source:
 - Streaming logs (background child + cross-invocation PID file)
 - Per-package logcat filter via `adb shell pidof <pkg>` → `--pid`
 - iOS physical-device log streaming (`devicectl device log stream`)
-- Performance metrics (`measurePerf` — CPU/memory sampling via `ps` on
-  sim, `xctrace` on device)
+- iOS physical-device perf via `xctrace activity-monitor-process-live`
+  (simulator perf via `simctl spawn ps` is shipped)
 - `.ipa` install / uninstall / reinstall for physical iOS (needs the
   install-artifact archive-prep chain)
 - Android pinch multi-touch (runner gap, not a Dart gap)
