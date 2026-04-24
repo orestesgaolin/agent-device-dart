@@ -1,26 +1,32 @@
-// Port of agent-device/src/platforms/ios/perf.ts — simulator slice.
+// Port of agent-device/src/platforms/ios/perf.ts.
 //
-// Samples CPU% and resident memory for a specific bundle id on a booted
-// iOS simulator. Resolves the app's `CFBundleExecutable` out of its
-// Info.plist (via `plutil -extract`), then spawns `ps -axo pid,%cpu,rss,
-// command` inside the sim and filters rows by executable basename.
-//
-// Physical-device sampling (xctrace activity-monitor-process-live +
-// .trace XML parsing) is deferred — the TS port is ~500 LOC of XML
-// heuristics and needs a trace-export orchestration step.
+// Simulator sampling uses `simctl spawn /bin/ps`. Physical-device
+// sampling records a 1-second `xctrace` activity-monitor trace, exports
+// the `activity-monitor-process-live` table as XML, and extracts the
+// target app's row.
 library;
+
+import 'dart:io';
 
 import 'package:agent_device/src/utils/errors.dart';
 import 'package:agent_device/src/utils/exec.dart';
 import 'package:path/path.dart' as p;
+import 'package:xml/xml.dart';
 
 import '../perf_utils.dart';
 import 'simctl.dart';
 
 const String appleCpuSampleMethod = 'ps-process-snapshot';
 const String appleMemorySampleMethod = 'ps-process-snapshot';
+const String iosDeviceCpuSampleMethod = 'xctrace-activity-monitor';
+const String iosDeviceMemorySampleMethod = 'xctrace-activity-monitor';
 
 const int _applePerfTimeoutMs = 15000;
+// Physical-device xctrace captures take materially longer than the
+// sample window itself to initialize.
+const int _iosDevicePerfRecordTimeoutMs = 60000;
+const int _iosDevicePerfExportTimeoutMs = 15000;
+const String _iosDevicePerfTraceDuration = '1s';
 
 /// CPU performance sample from `simctl spawn ps`.
 class AppleCpuPerfSample {
@@ -248,4 +254,240 @@ Future<List<AppleProcessSample>> _readSimulatorProcessSamples(
         (proc) => matchesAppleExecutableProcess(proc.command, executableName),
       )
       .toList();
+}
+
+// =========================================================================
+// Physical-device perf via xctrace
+// =========================================================================
+
+/// One process row pulled out of an xctrace
+/// `activity-monitor-process-live` XML dump.
+class IosDeviceProcessSample {
+  final int pid;
+  final String processName;
+  final int? cpuTimeNs;
+  final int? residentMemoryBytes;
+  final int? durationNs;
+  const IosDeviceProcessSample({
+    required this.pid,
+    required this.processName,
+    this.cpuTimeNs,
+    this.residentMemoryBytes,
+    this.durationNs,
+  });
+}
+
+/// Record a 1-second `Activity Monitor` trace on [udid] and extract
+/// every `activity-monitor-process-live` row. Caller filters by
+/// process name. Cleans up the temp .trace bundle on return.
+Future<List<IosDeviceProcessSample>> sampleIosDevicePerfSnapshot(
+  String udid,
+) async {
+  final tmp = await Directory.systemTemp.createTemp('ad-ios-xctrace-');
+  final tracePath = p.join(tmp.path, 'perf.trace');
+  try {
+    final record = await runCmd(
+      'xcrun',
+      [
+        'xctrace',
+        'record',
+        '--device',
+        udid,
+        '--template',
+        'Activity Monitor',
+        '--time-limit',
+        _iosDevicePerfTraceDuration,
+        '--all-processes',
+        '--output',
+        tracePath,
+      ],
+      const ExecOptions(
+        allowFailure: true,
+        timeoutMs: _iosDevicePerfRecordTimeoutMs,
+      ),
+    );
+    if (record.exitCode != 0) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'xctrace record failed (exit ${record.exitCode}).',
+        details: {
+          'stdout': record.stdout,
+          'stderr': record.stderr,
+          'hint':
+              'Ensure the device is unlocked + trusted and Xcode has been '
+              'opened at least once to warm up CoreDevice.',
+        },
+      );
+    }
+    final export = await runCmd(
+      'xcrun',
+      [
+        'xctrace',
+        'export',
+        '--input',
+        tracePath,
+        '--xpath',
+        '/trace-toc/run[1]/data/table[@schema="activity-monitor-process-live"]',
+      ],
+      const ExecOptions(
+        allowFailure: true,
+        timeoutMs: _iosDevicePerfExportTimeoutMs,
+      ),
+    );
+    if (export.exitCode != 0) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'xctrace export failed (exit ${export.exitCode}).',
+        details: {'stderr': export.stderr},
+      );
+    }
+    return parseIosDevicePerfXml(export.stdout);
+  } finally {
+    try {
+      await tmp.delete(recursive: true);
+    } catch (_) {}
+  }
+}
+
+/// Parse the XML dump of `activity-monitor-process-live` into one
+/// entry per row. Exposed for unit tests — the schema handling is
+/// fragile. `<sentinel />` cells collapse to null so rows that didn't
+/// sample a given metric don't poison the output.
+List<IosDeviceProcessSample> parseIosDevicePerfXml(String xmlText) {
+  final XmlDocument doc;
+  try {
+    doc = XmlDocument.parse(xmlText);
+  } on XmlException {
+    return const [];
+  }
+  final schema = doc.findAllElements('schema').firstOrNull;
+  if (schema == null) return const [];
+  final mnemonics = <String>[
+    for (final col in schema.findElements('col'))
+      col.findElements('mnemonic').firstOrNull?.innerText ?? '',
+  ];
+  final pidIndex = mnemonics.indexOf('pid');
+  final processIndex = mnemonics.indexOf('process');
+  final cpuTotalIndex = mnemonics.indexOf('cpu-total');
+  final memoryRealIndex = mnemonics.indexOf('memory-real');
+  final durationIndex = mnemonics.indexOf('duration');
+  if (pidIndex < 0 ||
+      processIndex < 0 ||
+      cpuTotalIndex < 0 ||
+      memoryRealIndex < 0) {
+    return const [];
+  }
+
+  // Build id → element map for ref lookup.
+  final elementsById = <String, XmlElement>{};
+  for (final el in doc.descendants.whereType<XmlElement>()) {
+    final id = el.getAttribute('id');
+    if (id != null) elementsById[id] = el;
+  }
+
+  final samples = <IosDeviceProcessSample>[];
+  final rows = doc.findAllElements('row').toList();
+  for (final row in rows) {
+    final cells = row.childElements.toList();
+    if (cells.length <= memoryRealIndex) continue;
+    final processName = _resolveProcessName(cells[processIndex], elementsById);
+    if (processName == null || processName.isEmpty) continue;
+    final pid = _resolveIntCell(cells[pidIndex], elementsById);
+    if (pid == null) continue;
+    samples.add(
+      IosDeviceProcessSample(
+        pid: pid,
+        processName: processName,
+        cpuTimeNs: _resolveIntCell(cells[cpuTotalIndex], elementsById),
+        residentMemoryBytes: _resolveIntCell(
+          cells[memoryRealIndex],
+          elementsById,
+        ),
+        durationNs: durationIndex >= 0 && cells.length > durationIndex
+            ? _resolveIntCell(cells[durationIndex], elementsById)
+            : null,
+      ),
+    );
+  }
+  return samples;
+}
+
+int? _resolveIntCell(XmlElement el, Map<String, XmlElement> elementsById) {
+  if (el.localName == 'sentinel') return null;
+  final ref = el.getAttribute('ref');
+  final text = ref != null ? elementsById[ref]?.innerText : el.innerText;
+  if (text == null || text.isEmpty) return null;
+  return int.tryParse(text.trim());
+}
+
+String? _resolveProcessName(
+  XmlElement el,
+  Map<String, XmlElement> elementsById,
+) {
+  // Prefer fmt ("AppName (1234)"), resolving ref first if present.
+  final ref = el.getAttribute('ref');
+  final target = ref != null ? elementsById[ref] : el;
+  final fmt = target?.getAttribute('fmt');
+  if (fmt != null && fmt.isNotEmpty) return fmt;
+  return null;
+}
+
+/// Sample physical-device CPU + memory. Records a 1s trace, exports,
+/// filters rows by [processMatcher] (passed each "AppName (pid)"
+/// string), aggregates. Throws if nothing matches.
+Future<({AppleCpuPerfSample cpu, AppleMemoryPerfSample memory})>
+sampleIosDevicePerfMetrics(
+  String udid, {
+  required bool Function(String processName) processMatcher,
+  required String matcherLabel,
+}) async {
+  final samples = await sampleIosDevicePerfSnapshot(udid);
+  final matched = samples.where((s) => processMatcher(s.processName)).toList();
+  if (matched.isEmpty) {
+    throw AppError(
+      AppErrorCodes.commandFailed,
+      'xctrace returned no running process matching "$matcherLabel"',
+      details: {
+        'hint':
+            'Ensure the app is foregrounded on the device before sampling. '
+            'Available processes (first 20): '
+            '${samples.map((s) => s.processName).take(20).toList()}',
+      },
+    );
+  }
+  final measuredAt = DateTime.now().toIso8601String();
+  final processNames = <String>{
+    for (final s in matched) s.processName,
+  }.toList();
+  // `cpu-total` is *lifetime* CPU time on core (ns), not a per-sample
+  // delta. One xctrace snapshot can't compute a meaningful CPU% — you'd
+  // need two samples a second apart and diff. Surface lifetime seconds
+  // instead and let the caller decide. Memory is a straight snapshot
+  // and IS meaningful.
+  double totalCpuSeconds = 0;
+  int totalResidentBytes = 0;
+  for (final s in matched) {
+    if (s.cpuTimeNs != null) {
+      totalCpuSeconds += s.cpuTimeNs! / 1e9;
+    }
+    if (s.residentMemoryBytes != null) {
+      totalResidentBytes += s.residentMemoryBytes!;
+    }
+  }
+  return (
+    cpu: AppleCpuPerfSample(
+      // usagePercent is overloaded here to carry lifetime CPU seconds.
+      // The CLI/metadata labels the unit so this doesn't leak.
+      usagePercent: (totalCpuSeconds * 10).round() / 10,
+      measuredAt: measuredAt,
+      method: iosDeviceCpuSampleMethod,
+      matchedProcesses: processNames,
+    ),
+    memory: AppleMemoryPerfSample(
+      residentMemoryKb: (totalResidentBytes / 1024).round(),
+      measuredAt: measuredAt,
+      method: iosDeviceMemorySampleMethod,
+      matchedProcesses: processNames,
+    ),
+  );
 }

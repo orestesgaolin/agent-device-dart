@@ -572,13 +572,6 @@ class IosBackend extends Backend {
   ) async {
     final udid = _udid(ctx);
     final kind = await _resolveKind(udid);
-    if (kind == 'device') {
-      throw AppError(
-        AppErrorCodes.unsupportedOperation,
-        'iOS physical-device perf sampling is not yet wired (needs xctrace + '
-        'trace export parsing). Use a simulator for now.',
-      );
-    }
     final bundleId = ctx.appBundleId ?? ctx.appId;
     if (bundleId == null || bundleId.isEmpty) {
       throw AppError(
@@ -590,6 +583,66 @@ class IosBackend extends Backend {
     final requested = options?.metrics?.map((e) => e.toLowerCase()).toSet();
     final wantCpu = requested == null || requested.contains('cpu');
     final wantMemory = requested == null || requested.contains('memory');
+
+    // Physical device: xctrace 1s activity-monitor + XML parse. Match
+    // rows by bundleId's last segment (typical CFBundleExecutable form)
+    // and by full bundleId as a fallback.
+    if (kind == 'device') {
+      final lastSegment = bundleId.split('.').last.toLowerCase();
+      final sample = await sampleIosDevicePerfMetrics(
+        udid,
+        matcherLabel: bundleId,
+        processMatcher: (name) {
+          final lower = name.toLowerCase();
+          return lower.contains(lastSegment) ||
+              lower.contains(bundleId.toLowerCase());
+        },
+      );
+      final metrics = <BackendPerfMetric>[];
+      if (wantCpu) {
+        metrics.add(
+          BackendPerfMetric(
+            name: 'cpu.lifetime',
+            value: sample.cpu.usagePercent,
+            unit: 'seconds',
+            status: 'ok',
+            metadata: {
+              'method': sample.cpu.method,
+              'description':
+                  'Lifetime CPU time on core, aggregated across matched '
+                  'processes. Not a per-sample delta — take two readings '
+                  'a second apart and subtract to derive CPU%.',
+              'matchedProcesses': sample.cpu.matchedProcesses,
+              'measuredAt': sample.cpu.measuredAt,
+            },
+          ),
+        );
+      }
+      if (wantMemory) {
+        metrics.add(
+          BackendPerfMetric(
+            name: 'memory.resident',
+            value: sample.memory.residentMemoryKb.toDouble(),
+            unit: 'kB',
+            status: 'ok',
+            metadata: {
+              'method': sample.memory.method,
+              'description':
+                  'memory-real bytes from the same xctrace window, '
+                  'aggregated.',
+              'matchedProcesses': sample.memory.matchedProcesses,
+              'measuredAt': sample.memory.measuredAt,
+            },
+          ),
+        );
+      }
+      return BackendMeasurePerfResult(
+        metrics: metrics,
+        startedAt: sample.cpu.measuredAt,
+        endedAt: sample.cpu.measuredAt,
+        backend: 'ios-device-xctrace',
+      );
+    }
 
     final sample = await sampleIosSimulatorPerfMetrics(udid, bundleId);
     final metrics = <BackendPerfMetric>[];
