@@ -1,8 +1,11 @@
 // `agent-device record start <outPath>` / `record stop <outPath>` —
-// drive the video recorder. Phase 10 scope: iOS simulator only (via
-// the XCUITest runner's recordStart/recordStop). Android recording
-// (`adb shell screenrecord`) is deferred — it needs a cross-invocation
-// PID cache like the iOS runner session record.
+// drive the video recorder. iOS simulator goes through the XCUITest
+// runner's recordStart/recordStop + sandbox-tmp pull. Android goes
+// through `adb shell screenrecord` forked on-device with a PID cache
+// at <stateDir>/android-recorders/<serial>.json + `adb pull` on stop.
+// iOS physical-device video capture is still unsupported — the
+// XCUITest runner writes to its own sim sandbox, which doesn't exist
+// on a real device.
 library;
 
 import 'dart:io';

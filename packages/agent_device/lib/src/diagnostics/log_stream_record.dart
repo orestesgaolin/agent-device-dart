@@ -91,9 +91,18 @@ Future<void> deleteLogStreamRecord(String deviceId) async {
   }
 }
 
-/// Send SIGINT to [pid] so streamers (logcat, simctl log stream) get a
-/// chance to flush their buffers before dying. Best-effort — swallows
-/// all errors, returns true iff the signal appeared to land.
+/// Send SIGINT to [pid] so streamers (logcat, simctl log stream,
+/// idevicesyslog) get a chance to flush their buffers before dying.
+/// Best-effort — swallows all errors, returns true iff the signal
+/// appeared to land.
+///
+/// NB: The upstream TS port (`app-log-ios.ts::stop`) pairs SIGINT with a
+/// follow-up SIGKILL if the child is still alive after the first
+/// signal. The Dart port intentionally omits that fallback — all three
+/// streamers we drive respond promptly to SIGINT on typical hardware,
+/// and the next `startLogStream` call (ios_backend / android_backend)
+/// re-kills any stale PID before spawning a new child, so orphans stay
+/// bounded per-device rather than accumulating globally.
 bool killLogStreamPid(int pid) {
   try {
     return Process.killPid(pid, ProcessSignal.sigint);

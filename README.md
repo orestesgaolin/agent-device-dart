@@ -55,7 +55,7 @@ another both land on the same device.
 | `clipboard` get / `--set <text>`  | ✅                     | ✅ (simctl pbpaste/pbcopy) | ❌                  |
 | `press` / `find` / `get` / `is` / `wait` — selector/@ref targeting | ✅ | ✅ | ✅ |
 | `ensure-simulator <name>`         | n/a                    | ✅                    | n/a                    |
-| `logs --since 30s --out <path>` (one-shot) | ✅ (logcat -T)  | ✅ (simctl log show) | ❌ (streaming TBD)   |
+| `logs --since 30s --out <path>` (one-shot) | ✅ (logcat -T)  | ✅ (simctl log show) | ❌ (use `--stream` instead — Apple has no host-side `log show` for devices) |
 | `logs --stream --out <path>` / `logs --stop` | ✅ (logcat --pid + cross-invocation PID cache) | ✅ (simctl log stream predicate) | ✅ (idevicesyslog via libimobiledevice) |
 | `record start` / `record stop`    | ✅ (screenrecord + pull) | ✅ (XCUITest runner + sandbox pull) | ❌ |
 | `perf [--metric cpu\|memory]`      | ✅ (dumpsys)           | ✅ (simctl spawn ps)  | ✅ (1s xctrace + XML; cpu as lifetime seconds) |

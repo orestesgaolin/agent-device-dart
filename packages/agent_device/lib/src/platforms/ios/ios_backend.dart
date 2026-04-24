@@ -558,13 +558,21 @@ class IosBackend extends Backend {
   }
 
   // =========================================================================
-  // Diagnostics: Performance sampling (simctl spawn ps)
+  // Diagnostics: Performance sampling
   // =========================================================================
 
-  /// Sample CPU% and resident memory (kB) for the session's open app on
-  /// an iOS simulator. Physical devices aren't wired yet (TS uses
-  /// `xctrace record --template "Activity Monitor"`, which needs XML
-  /// trace export + schema-aware parsing — deferred).
+  /// Sample CPU + resident memory for the session's open app.
+  ///
+  /// Simulator path: `simctl spawn /bin/ps -axo pid,%cpu,rss,command`
+  /// filtered by the app's `CFBundleExecutable`, reports aggregate
+  /// `cpu` (percent) and `memory.resident` (kB).
+  ///
+  /// Physical-device path: `xctrace record --template 'Activity Monitor'
+  /// --time-limit 1s` + XML export, filters rows whose process name
+  /// contains the bundle id's last segment, reports `cpu.lifetime`
+  /// (seconds of cumulative CPU time on core — not a delta %) and
+  /// `memory.resident` (kB). For a true CPU% take two readings a
+  /// second apart and diff; we don't synthesise that here.
   @override
   Future<BackendMeasurePerfResult> measurePerf(
     BackendCommandContext ctx,
@@ -696,8 +704,11 @@ class IosBackend extends Backend {
 
   /// Dump recent os_log output filtered to the session's app bundle id.
   /// Simulator only — shells out to `xcrun simctl spawn [udid] log show
-  /// --predicate ...`. Physical-device logs (`xcrun devicectl device log
-  /// stream`) are deferred until streaming lands.
+  /// --predicate ...`. For physical devices there's no equivalent
+  /// one-shot (Apple's `log show` only works on the host itself or on
+  /// a simulator), so `readLogs` raises `UNSUPPORTED_OPERATION` there;
+  /// use [startLogStream] / [stopLogStream] instead — that path works
+  /// on physical iOS via `idevicesyslog`.
   @override
   Future<BackendReadLogsResult> readLogs(
     BackendCommandContext ctx,
@@ -708,8 +719,10 @@ class IosBackend extends Backend {
     if (kind == 'device') {
       throw AppError(
         AppErrorCodes.unsupportedOperation,
-        'iOS physical-device log capture is not yet wired. Use a simulator '
-        'or stream via `xcrun devicectl device log stream --device $udid`.',
+        'iOS physical-device one-shot `logs` isn\'t available — Apple\'s '
+        '`log show` only targets the host or a simulator. Use '
+        '`agent-device logs --stream --out <path>` / `logs --stop` '
+        'instead (streams via idevicesyslog).',
       );
     }
     final bundleId = ctx.appBundleId ?? ctx.appId;

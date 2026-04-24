@@ -10,9 +10,9 @@
 // snapshot + rewrite via `healReplayAction`, and the healed actions are
 // serialized back to the source script.
 //
-// Still deferred (follow-up commits): record-trace + video capture,
-// app-log / network-log observability, runtime-hint / metro session
-// bootstrap.
+// Still deferred: runtime-hint / metro session bootstrap (Phase 11),
+// byte-for-byte CLI stdout parity with the TS Node CLI on a `.ad`
+// corpus (Phase 12 release-polish item).
 library;
 
 import 'dart:async';
