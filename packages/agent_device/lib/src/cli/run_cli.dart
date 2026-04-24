@@ -8,6 +8,7 @@ import 'package:args/command_runner.dart';
 import 'commands/devices_cmd.dart';
 import 'commands/ensure_simulator_cmd.dart';
 import 'commands/logs_cmd.dart';
+import 'commands/network_cmd.dart';
 import 'commands/record_cmd.dart';
 import 'commands/replay_cmd.dart';
 import 'commands/screenshot_cmd.dart';
@@ -82,6 +83,7 @@ Future<int> runCli(List<String> argv) async {
     ..addCommand(WaitCommand())
     ..addCommand(EnsureSimulatorCommand())
     ..addCommand(LogsCommand())
+    ..addCommand(NetworkCommand())
     ..addCommand(RecordCommand())
     ..addCommand(ReplayCommand())
     ..addCommand(TestCommand())
