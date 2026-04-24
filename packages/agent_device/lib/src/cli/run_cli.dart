@@ -12,6 +12,7 @@ import 'commands/network_cmd.dart';
 import 'commands/perf_cmd.dart';
 import 'commands/record_cmd.dart';
 import 'commands/replay_cmd.dart';
+import 'commands/runner_cmd.dart';
 import 'commands/screenshot_cmd.dart';
 import 'commands/selector_cmds.dart';
 import 'commands/session_cmd.dart';
@@ -87,6 +88,7 @@ Future<int> runCli(List<String> argv) async {
     ..addCommand(NetworkCommand())
     ..addCommand(PerfCommand())
     ..addCommand(RecordCommand())
+    ..addCommand(RunnerCommand())
     ..addCommand(ReplayCommand())
     ..addCommand(TestCommand())
     ..addCommand(SessionCommand());

@@ -56,6 +56,17 @@ needs to be trusted **on the device itself**, one-time:
 If any of those are missed you'll see a `COMMAND_FAILED` with hint
 "The UI test runner failed to enable automation mode …".
 
+The runner is intentionally cached across CLI invocations (under
+`~/.agent-device/ios-runners/<udid>.json`) so subsequent commands skip
+the ~14s xcodebuild cold-start. To dismiss the on-device "Automation
+Running" overlay, run:
+
+```bash
+agent-device runner stop                  # active session's device
+agent-device runner stop --serial <UDID>  # specific device
+agent-device runner stop --all            # every cached runner
+```
+
 Every command takes `--platform ios|android`, `--serial <udid|id>`,
 `--session <name>`, and emits either human-readable text or `--json`.
 Session state (which device + which app) persists across invocations
