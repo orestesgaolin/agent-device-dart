@@ -4,6 +4,8 @@ import 'package:agent_device/src/backend/backend.dart';
 import 'package:agent_device/src/core/device_rotation.dart';
 import 'package:agent_device/src/core/scroll_gesture.dart';
 import 'package:agent_device/src/snapshot/snapshot.dart';
+import 'package:agent_device/src/utils/errors.dart';
+import 'package:agent_device/src/utils/exec.dart';
 
 import 'app_lifecycle.dart';
 import 'device_input_state.dart';
@@ -395,6 +397,66 @@ class AndroidBackend extends Backend {
     return BackendInstallResult(appId: packageName, packageName: packageName);
   }
 
+  // =========================================================================
+  // Diagnostics: Logs (one-shot)
+  // =========================================================================
+
+  /// Dump recent logcat output (all tags). Simulator & device alike.
+  /// Uses `adb -s <serial> logcat -d -T <time>` so the call returns
+  /// bounded output rather than streaming. Options.since accepts the same
+  /// relative forms as the iOS backend (`30s`, `5m`, `1h`, `2d`) plus
+  /// absolute `YYYY-MM-DD HH:MM:SS.mmm` for callers that want to pin an
+  /// exact point. Filtering by app package is deferred — pull everything
+  /// and let the caller grep. Default window: last 5 minutes.
+  @override
+  Future<BackendReadLogsResult> readLogs(
+    BackendCommandContext ctx,
+    BackendReadLogsOptions? options,
+  ) async {
+    final since = options?.since?.trim();
+    final windowArg = resolveAdbLogcatTimeWindow(since);
+    final args = <String>[
+      '-s',
+      _serial(ctx),
+      'logcat',
+      '-d',
+      '-v',
+      'time',
+      if (windowArg != null) ...['-T', windowArg],
+    ];
+    final r = await runCmd(
+      'adb',
+      args,
+      const ExecOptions(allowFailure: true, timeoutMs: 15000),
+    );
+    if (r.exitCode != 0) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'adb logcat failed (exit ${r.exitCode}).',
+        details: {
+          'stderr': r.stderr,
+          'stdout': r.stdout,
+          'exitCode': r.exitCode,
+        },
+      );
+    }
+    final rawLines = r.stdout.split('\n');
+    final entries = <BackendLogEntry>[];
+    for (final raw in rawLines) {
+      final line = raw.trimRight();
+      if (line.trim().isEmpty) continue;
+      // logcat -v time emits a "--------- beginning of <buffer>" banner
+      // per log buffer; drop it.
+      if (line.startsWith('--------- beginning of ')) continue;
+      entries.add(BackendLogEntry(message: line));
+    }
+    final limit = options?.limit;
+    final trimmed = (limit != null && limit > 0 && entries.length > limit)
+        ? entries.sublist(entries.length - limit)
+        : entries;
+    return BackendReadLogsResult(entries: trimmed, backend: 'android-logcat');
+  }
+
   @override
   Future<BackendInstallResult> reinstallApp(
     BackendCommandContext ctx,
@@ -414,6 +476,39 @@ class AndroidBackend extends Backend {
     final res = await reinstallAndroidApp(_serial(ctx), app, path);
     return BackendInstallResult(appId: res.package, packageName: res.package);
   }
+}
+
+/// Convert iOS-flavoured `--since` inputs (`30s`, `5m`, `1h`, `2d`) into
+/// the `MM-DD HH:MM:SS.mmm` timestamp adb's `logcat -T` expects. Absolute
+/// timestamps are passed through unchanged. Null/empty defaults to a
+/// 5-minute window. Returns null for unrecognizable input (caller may
+/// choose to omit the `-T` flag entirely).
+String? resolveAdbLogcatTimeWindow(String? since, {DateTime? now}) {
+  Duration? duration;
+  if (since == null || since.isEmpty) {
+    duration = const Duration(minutes: 5);
+  } else {
+    final relative = RegExp(r'^(\d+)([smhd])$').firstMatch(since);
+    if (relative != null) {
+      final n = int.parse(relative.group(1)!);
+      duration = switch (relative.group(2)) {
+        's' => Duration(seconds: n),
+        'm' => Duration(minutes: n),
+        'h' => Duration(hours: n),
+        'd' => Duration(days: n),
+        _ => null,
+      };
+    } else {
+      // Pass through absolute timestamps as-is.
+      return since;
+    }
+  }
+  if (duration == null) return null;
+  final since0 = (now ?? DateTime.now()).subtract(duration);
+  String two(int v) => v.toString().padLeft(2, '0');
+  String three(int v) => v.toString().padLeft(3, '0');
+  return '${two(since0.month)}-${two(since0.day)} ${two(since0.hour)}:'
+      '${two(since0.minute)}:${two(since0.second)}.${three(since0.millisecond)}';
 }
 
 DeviceRotation _toDeviceRotation(BackendDeviceOrientation o) => switch (o) {
