@@ -1,0 +1,115 @@
+name: Fixture Live
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  android-fixture-live:
+    name: Android Fixture Live
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Get Dart dependencies
+        run: dart pub get
+
+      - name: Get Flutter fixture dependencies
+        run: flutter pub get
+        working-directory: test_apps/agent_device_fixture_app
+
+      - name: Build, install, and test on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          arch: x86_64
+          profile: pixel_7
+          target: google_apis
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics
+          script: |
+            set -euo pipefail
+            pushd test_apps/agent_device_fixture_app
+            flutter build apk --debug
+            adb install -r build/app/outputs/flutter-apk/app-debug.apk
+            popd
+
+            dart run packages/agent_device/bin/agent_device.dart --session fixture-android-ci open com.example.agent_device_fixture_app --platform android --serial emulator-5554 --json
+            dart run packages/agent_device/bin/agent_device.dart --session fixture-android-ci snapshot --platform android --serial emulator-5554 --json
+
+            AGENT_DEVICE_FIXTURE_ANDROID_LIVE=1 \
+            AGENT_DEVICE_FIXTURE_ANDROID_SERIAL=emulator-5554 \
+            dart test packages/agent_device/test/platforms/android/fixture_app_live_test.dart
+
+  ios-fixture-live:
+    name: iOS Fixture Live
+    runs-on: macos-26
+    timeout-minutes: 80
+    env:
+      IOS_RUNTIME_VERSION: '26.2'
+      IOS_SIMULATOR_NAME: 'iPhone 17 Pro'
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Get Dart dependencies
+        run: dart pub get
+
+      - name: Get Flutter fixture dependencies
+        run: flutter pub get
+        working-directory: test_apps/agent_device_fixture_app
+
+      - name: Resolve and boot simulator
+        id: boot-sim
+        run: |
+          set -euo pipefail
+          export IOS_RUNTIME_VERSION IOS_SIMULATOR_NAME
+          UDID="$(xcrun simctl list devices available -j | python3 -c "import json, os, sys; payload=json.load(sys.stdin); token='iOS-' + os.environ['IOS_RUNTIME_VERSION'].replace('.', '-'); preferred=os.environ['IOS_SIMULATOR_NAME']; selected=next((device['udid'] for runtime, devices in payload.get('devices', {}).items() if token in runtime for device in devices if device.get('isAvailable') and device.get('name') == preferred), ''); sys.stdout.write(selected) if selected else sys.exit('No matching simulator available')")"
+          xcrun simctl shutdown all || true
+          xcrun simctl boot "$UDID" || true
+          xcrun simctl bootstatus "$UDID" -b
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+
+      - name: Build iOS runner
+        run: |
+          set -euo pipefail
+          xcodebuild build-for-testing \
+            -project ios-runner/AgentDeviceRunner/AgentDeviceRunner.xcodeproj \
+            -scheme AgentDeviceRunner \
+            -destination "platform=iOS Simulator,id=${{ steps.boot-sim.outputs.udid }}" \
+            -derivedDataPath ios-runner/build
+
+      - name: Build and install Flutter fixture app
+        run: |
+          set -euo pipefail
+          pushd test_apps/agent_device_fixture_app
+          flutter build ios --debug --simulator
+          popd
+          xcrun simctl install "${{ steps.boot-sim.outputs.udid }}" \
+            test_apps/agent_device_fixture_app/build/ios/iphonesimulator/Runner.app
+
+      - name: CLI smoke on fixture app
+        run: |
+          set -euo pipefail
+          dart run packages/agent_device/bin/agent_device.dart --session fixture-ios-ci open com.example.agentDeviceFixtureApp --platform ios --serial "${{ steps.boot-sim.outputs.udid }}" --json
+          dart run packages/agent_device/bin/agent_device.dart --session fixture-ios-ci snapshot --platform ios --serial "${{ steps.boot-sim.outputs.udid }}" --json
+
+      - name: Package live tests on fixture app
+        env:
+          AGENT_DEVICE_FIXTURE_IOS_LIVE: '1'
+          AGENT_DEVICE_FIXTURE_IOS_UDID: ${{ steps.boot-sim.outputs.udid }}
+        run: dart test packages/agent_device/test/platforms/ios/fixture_app_live_test.dart

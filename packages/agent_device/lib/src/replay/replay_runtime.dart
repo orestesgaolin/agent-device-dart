@@ -22,6 +22,7 @@ import 'dart:io';
 import 'package:agent_device/src/backend/backend.dart';
 import 'package:agent_device/src/runtime/agent_device.dart';
 import 'package:agent_device/src/runtime/interaction_target.dart';
+import 'package:agent_device/src/selectors/selectors.dart';
 import 'package:agent_device/src/snapshot/snapshot.dart' show SnapshotNode;
 import 'package:agent_device/src/utils/errors.dart';
 import 'package:path/path.dart' as p;
@@ -496,6 +497,193 @@ Future<List<String>> _dispatch({
         );
       }
       return const [];
+
+    case 'find':
+      if (positionals.isEmpty) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "find" requires text to search for.',
+        );
+      }
+      await device.find(positionals.join(' '));
+      return const [];
+
+    case 'get':
+      if (positionals.isEmpty) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "get" requires [<attr>] <selector | @ref>.',
+        );
+      }
+      const knownAttrs = {
+        'text',
+        'label',
+        'value',
+        'identifier',
+        'type',
+        'role',
+        'rect',
+        'ref',
+      };
+      late final String attr;
+      late final List<String> rest;
+      if (knownAttrs.contains(positionals.first)) {
+        attr = positionals.first;
+        rest = positionals.sublist(1);
+      } else {
+        attr = 'text';
+        rest = positionals;
+      }
+      final target = InteractionTarget.parseArgs(rest);
+      if (target == null) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "get" requires a selector or @ref target.',
+        );
+      }
+      await device.getAttr(attr, target);
+      return const [];
+
+    case 'is':
+      if (positionals.isEmpty) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "is" requires <predicate> [args...] <selector | @ref>.',
+        );
+      }
+      final parsedIs = splitIsSelectorArgs(positionals);
+      final predicate = parsedIs.predicate;
+      final split = parsedIs.split;
+      if (!isSupportedPredicate(predicate) || split == null) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "is" requires a supported predicate and selector target.',
+        );
+      }
+      final target = InteractionTarget.parseArgs([split.selectorExpression]);
+      if (target == null) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "is" could not resolve target "${split.selectorExpression}"',
+        );
+      }
+      final expectedText = predicate == 'text'
+          ? split.rest.join(' ').trim()
+          : null;
+      final result = await device.isPredicate(
+        predicate,
+        target,
+        expectedText: expectedText,
+      );
+      if (!result.pass) {
+        throw AppError(
+          AppErrorCodes.commandFailed,
+          'replay "is $predicate" failed: ${result.details}',
+          details: {
+            'predicate': predicate,
+            'target': split.selectorExpression,
+            'actualText': result.actualText,
+          },
+        );
+      }
+      return const [];
+
+    case 'wait':
+      if (positionals.isEmpty) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "wait" requires either <milliseconds> or '
+          '<predicate> [args...] <selector> [timeoutMs].',
+        );
+      }
+      final sleepMs = int.tryParse(positionals.first);
+      if (sleepMs != null && positionals.length == 1) {
+        await Future<void>.delayed(Duration(milliseconds: sleepMs));
+        return const [];
+      }
+      if (isSupportedPredicate(positionals.first)) {
+        final parsedWait = splitIsSelectorArgs(positionals);
+        final waitPredicate = parsedWait.predicate;
+        final waitSplit = parsedWait.split;
+        if (waitSplit == null) {
+          throw AppError(
+            AppErrorCodes.invalidArgs,
+            'replay "wait" requires a selector target.',
+          );
+        }
+        final waitTarget = InteractionTarget.parseArgs([
+          waitSplit.selectorExpression,
+        ]);
+        if (waitTarget == null) {
+          throw AppError(
+            AppErrorCodes.invalidArgs,
+            'replay "wait" could not resolve target "${waitSplit.selectorExpression}"',
+          );
+        }
+        final trailing = List<String>.from(waitSplit.rest);
+        var timeoutMs = 10000;
+        String? expectedText;
+        if (waitPredicate == 'text') {
+          if (trailing.isEmpty) {
+            throw AppError(
+              AppErrorCodes.invalidArgs,
+              'replay "wait text" requires expected text before the optional timeout.',
+            );
+          }
+          final maybeTimeout = int.tryParse(trailing.last);
+          if (maybeTimeout != null && trailing.length >= 2) {
+            timeoutMs = maybeTimeout;
+            trailing.removeLast();
+          }
+          expectedText = trailing.join(' ').trim();
+          if (expectedText.isEmpty) {
+            throw AppError(
+              AppErrorCodes.invalidArgs,
+              'replay "wait text" requires non-empty expected text.',
+            );
+          }
+        } else if (trailing.isNotEmpty) {
+          final maybeTimeout = int.tryParse(trailing.last);
+          if (maybeTimeout == null || trailing.length > 1) {
+            throw AppError(
+              AppErrorCodes.invalidArgs,
+              'replay "wait $waitPredicate" only accepts an optional trailing timeout in milliseconds.',
+            );
+          }
+          timeoutMs = maybeTimeout;
+        }
+        await device.wait(
+          waitPredicate,
+          waitTarget,
+          timeout: Duration(milliseconds: timeoutMs),
+          expectedText: expectedText,
+        );
+        return const [];
+      }
+      final legacyWait = parseSelectorWaitPositionals(positionals);
+      if (legacyWait.selectorExpression != null) {
+        final waitTarget = InteractionTarget.parseArgs([
+          legacyWait.selectorExpression!,
+        ]);
+        if (waitTarget == null) {
+          throw AppError(
+            AppErrorCodes.invalidArgs,
+            'replay "wait" could not resolve target "${legacyWait.selectorExpression}"',
+          );
+        }
+        await device.wait(
+          'exists',
+          waitTarget,
+          timeout: Duration(
+            milliseconds: int.tryParse(legacyWait.selectorTimeout ?? '') ?? 10000,
+          ),
+        );
+        return const [];
+      }
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'replay "wait" requires either <milliseconds> or a supported predicate form.',
+      );
 
     case 'snapshot':
       final res = await device.snapshot(

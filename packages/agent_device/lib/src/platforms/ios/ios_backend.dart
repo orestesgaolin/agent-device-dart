@@ -60,6 +60,14 @@ class IosBackend extends Backend {
     return udid;
   }
 
+  String? _appBundleId(BackendCommandContext ctx) {
+    final bundleId = ctx.appBundleId ?? ctx.appId;
+    if (bundleId == null || bundleId.isEmpty) {
+      return null;
+    }
+    return bundleId;
+  }
+
   // =========================================================================
   // Runner session lookup / launch.
   // =========================================================================
@@ -149,8 +157,10 @@ class IosBackend extends Backend {
     BackendSnapshotOptions? options,
   ) async {
     final session = await _runner(ctx);
+    final bundleId = _appBundleId(ctx);
     final body = <String, Object?>{
       'command': 'snapshot',
+      'appBundleId': ?bundleId,
       if (options?.interactiveOnly != null)
         'interactiveOnly': options!.interactiveOnly,
       if (options?.compact != null) 'compact': options!.compact,
@@ -212,7 +222,13 @@ class IosBackend extends Backend {
     BackendTapOptions? options,
   ) async {
     final session = await _runner(ctx);
-    await _sendOrThrow(session, {'command': 'tap', 'x': point.x, 'y': point.y});
+    final bundleId = _appBundleId(ctx);
+    await _sendOrThrow(session, {
+      'command': 'tap',
+      'x': point.x,
+      'y': point.y,
+      'appBundleId': ?bundleId,
+    });
     return null;
   }
 
@@ -223,10 +239,12 @@ class IosBackend extends Backend {
     BackendLongPressOptions? options,
   ) async {
     final session = await _runner(ctx);
+    final bundleId = _appBundleId(ctx);
     await _sendOrThrow(session, {
       'command': 'longPress',
       'x': point.x,
       'y': point.y,
+      'appBundleId': ?bundleId,
       if (options?.durationMs != null) 'durationMs': options!.durationMs,
     });
     return null;
@@ -240,12 +258,14 @@ class IosBackend extends Backend {
     BackendSwipeOptions? options,
   ) async {
     final session = await _runner(ctx);
+    final bundleId = _appBundleId(ctx);
     await _sendOrThrow(session, {
       'command': 'drag',
       'x': from.x,
       'y': from.y,
       'x2': to.x,
       'y2': to.y,
+      'appBundleId': ?bundleId,
       if (options?.durationMs != null) 'durationMs': options!.durationMs,
     });
     return null;
@@ -258,7 +278,12 @@ class IosBackend extends Backend {
     Map<String, Object?>? options,
   ]) async {
     final session = await _runner(ctx);
-    await _sendOrThrow(session, {'command': 'type', 'text': text});
+    final bundleId = _appBundleId(ctx);
+    await _sendOrThrow(session, {
+      'command': 'type',
+      'text': text,
+      'appBundleId': ?bundleId,
+    });
     return null;
   }
 

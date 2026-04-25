@@ -182,6 +182,56 @@ void main() {
       expect(result.steps.first.errorCode, 'UNSUPPORTED_OPERATION');
     });
 
+    test('is exists succeeds for a selector-matched node', () async {
+      final backend = _SelectorBackend();
+      final device = await openDevice(backend);
+      final script = File('${tmp.path}/is-exists.ad');
+      await script.writeAsString(
+        'is exists "label=\\"Ready status\\""\n',
+      );
+
+      final result = await runReplayScript(
+        scriptPath: script.path,
+        device: device,
+      );
+
+      expect(result.ok, isTrue, reason: result.steps.toString());
+      expect(backend.calls.map((c) => c.name), contains('captureSnapshot'));
+    });
+
+    test('wait supports a simple sleep step', () async {
+      final backend = _RecordingBackend();
+      final device = await openDevice(backend);
+      backend.calls.clear();
+      final script = File('${tmp.path}/sleep.ad');
+      await script.writeAsString('wait 5\n');
+
+      final result = await runReplayScript(
+        scriptPath: script.path,
+        device: device,
+      );
+
+      expect(result.ok, isTrue);
+      expect(backend.calls, isEmpty);
+    });
+
+    test('wait exists polls a selector target', () async {
+      final backend = _SelectorBackend();
+      final device = await openDevice(backend);
+      final script = File('${tmp.path}/wait-exists.ad');
+      await script.writeAsString(
+        'wait exists "label=\\"Ready status\\"" 25\n',
+      );
+
+      final result = await runReplayScript(
+        scriptPath: script.path,
+        device: device,
+      );
+
+      expect(result.ok, isTrue, reason: result.steps.toString());
+      expect(backend.calls.map((c) => c.name), contains('captureSnapshot'));
+    });
+
     test('surfaces context-header metadata on the result', () async {
       final backend = _RecordingBackend();
       final device = await openDevice(backend);
@@ -480,6 +530,31 @@ class _HealBackend extends Backend {
       platform: AgentDeviceBackendPlatform.android,
     ),
   ];
+}
+
+class _SelectorBackend extends _RecordingBackend {
+  @override
+  Future<BackendSnapshotResult> captureSnapshot(
+    BackendCommandContext ctx,
+    BackendSnapshotOptions? options,
+  ) async {
+    _record('captureSnapshot', {'options': options});
+    return const BackendSnapshotResult(
+      nodes: [
+        SnapshotNode(
+          index: 0,
+          ref: '@e0',
+          label: 'Ready status',
+          identifier: 'ready-status',
+          type: 'Text',
+          role: 'Text',
+          rect: Rect(x: 10, y: 10, width: 160, height: 32),
+          hittable: true,
+        ),
+      ],
+      truncated: false,
+    );
+  }
 }
 
 class _BackendCall {
