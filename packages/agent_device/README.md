@@ -68,4 +68,4 @@ Session state persists across invocations under `~/.agent-device/sessions/`.
 
 ## License
 
-See the [`LICENSE`](../../LICENSE) file at the workspace root.
+MIT — see [`LICENSE`](./LICENSE).

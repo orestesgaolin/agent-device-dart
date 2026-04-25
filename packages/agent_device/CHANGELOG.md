@@ -24,4 +24,4 @@ Highlights:
 - `dart compile exe`-friendly: produces a single static native binary
   via `make compile`.
 
-License: see the `LICENSE` file at the workspace root.
+License: MIT.

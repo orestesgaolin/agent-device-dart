@@ -230,9 +230,9 @@ Key design choices vs. the TS source:
 **Phase 12 — polish & release** *(in progress)*
 - ✅ `dart compile exe` standalone binary (`make compile` → `dist/agent-device`)
 - ✅ Shell completions: `agent-device completion bash|zsh|fish`
+- ✅ pub.dev dry-run passes (MIT-licensed; `publish_to: none` stays
+  in until you actually want to publish)
 - Byte-for-byte CLI output diff against the Node CLI on a `.ad` corpus
-- pub.dev publish — dry-run is one `LICENSE` file from passing
-  (waiting on a license decision)
 
 ## Testing
 
@@ -249,7 +249,7 @@ AGENT_DEVICE_ANDROID_LIVE=1 dart test --tags=android-live
 
 ## License
 
-Same as upstream `agent-device`.
+MIT — see [`LICENSE`](./LICENSE).
 
 ---
 
