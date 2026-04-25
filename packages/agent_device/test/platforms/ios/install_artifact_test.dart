@@ -50,16 +50,17 @@ void main() {
       final ipa = await _makeIpa(
         parent: tmp,
         archiveName: 'Demo.ipa',
-        bundles: [
-          _BundleSpec(name: 'Demo.app', bundleId: 'com.example.demo'),
-        ],
+        bundles: [_BundleSpec(name: 'Demo.app', bundleId: 'com.example.demo')],
       );
       final prepared = await prepareIosInstallArtifact(ipa);
       try {
         expect(prepared.archivePath, equals(ipa));
         expect(prepared.bundleId, equals('com.example.demo'));
         expect(prepared.installablePath.endsWith('Demo.app'), isTrue);
-        expect(File(p.join(prepared.installablePath, 'Info.plist')).existsSync(), isTrue);
+        expect(
+          File(p.join(prepared.installablePath, 'Info.plist')).existsSync(),
+          isTrue,
+        );
       } finally {
         await prepared.cleanup();
       }
@@ -76,11 +77,13 @@ void main() {
       );
       await expectLater(
         () => prepareIosInstallArtifact(ipa),
-        throwsA(isA<AppError>().having(
-          (e) => e.code,
-          'code',
-          AppErrorCodes.invalidArgs,
-        )),
+        throwsA(
+          isA<AppError>().having(
+            (e) => e.code,
+            'code',
+            AppErrorCodes.invalidArgs,
+          ),
+        ),
       );
     });
 
@@ -137,11 +140,13 @@ void main() {
       await _zip(stage.path, ipa);
       await expectLater(
         () => prepareIosInstallArtifact(ipa),
-        throwsA(isA<AppError>().having(
-          (e) => e.message,
-          'message',
-          contains('expected at least one .app'),
-        )),
+        throwsA(
+          isA<AppError>().having(
+            (e) => e.message,
+            'message',
+            contains('expected at least one .app'),
+          ),
+        ),
       );
     });
 
@@ -150,24 +155,26 @@ void main() {
       await txt.writeAsString('hi');
       await expectLater(
         () => prepareIosInstallArtifact(txt.path),
-        throwsA(isA<AppError>().having(
-          (e) => e.message,
-          'message',
-          contains('Expected an iOS .app directory or .ipa file'),
-        )),
+        throwsA(
+          isA<AppError>().having(
+            (e) => e.message,
+            'message',
+            contains('Expected an iOS .app directory or .ipa file'),
+          ),
+        ),
       );
     });
 
     test('rejects missing source path', () async {
       await expectLater(
-        () => prepareIosInstallArtifact(
-          p.join(tmp.path, 'nope.app'),
+        () => prepareIosInstallArtifact(p.join(tmp.path, 'nope.app')),
+        throwsA(
+          isA<AppError>().having(
+            (e) => e.message,
+            'message',
+            contains('not found'),
+          ),
         ),
-        throwsA(isA<AppError>().having(
-          (e) => e.message,
-          'message',
-          contains('not found'),
-        )),
       );
     });
   });
@@ -225,11 +232,7 @@ Future<String> _makeIpa({
   ).create();
   final payload = await Directory(p.join(stage.path, 'Payload')).create();
   for (final b in bundles) {
-    await _makeAppBundle(
-      parent: payload,
-      name: b.name,
-      bundleId: b.bundleId,
-    );
+    await _makeAppBundle(parent: payload, name: b.name, bundleId: b.bundleId);
   }
   final ipa = p.join(parent.path, archiveName);
   await _zip(stage.path, ipa);
@@ -239,11 +242,11 @@ Future<String> _makeIpa({
 Future<void> _zip(String stageDir, String outIpa) async {
   // `zip -r <out> Payload` from inside stageDir keeps the archive's
   // root entry as `Payload/...`, matching real .ipa structure.
-  final r = await Process.run(
-    'zip',
-    ['-qr', outIpa, '.'],
-    workingDirectory: stageDir,
-  );
+  final r = await Process.run('zip', [
+    '-qr',
+    outIpa,
+    '.',
+  ], workingDirectory: stageDir);
   if (r.exitCode != 0) {
     throw StateError('zip failed: ${r.stderr}');
   }

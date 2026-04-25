@@ -30,7 +30,7 @@ CommandRunner<int> buildCliRunner({String executableName = 'agent-device'}) {
   final runner = CommandRunner<int>(
     executableName,
     'Agent-driven CLI for mobile UI automation, network inspection, '
-        'and performance diagnostics.',
+    'and performance diagnostics.',
     usageLineLength: stdout.hasTerminal ? stdout.terminalColumns : 80,
   );
 

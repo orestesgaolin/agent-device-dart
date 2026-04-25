@@ -51,7 +51,8 @@ class PrepareIosInstallArtifactOptions {
 /// input.
 Future<PreparedIosInstallArtifact> prepareIosInstallArtifact(
   String path, {
-  PrepareIosInstallArtifactOptions options = const PrepareIosInstallArtifactOptions(),
+  PrepareIosInstallArtifactOptions options =
+      const PrepareIosInstallArtifactOptions(),
 }) async {
   final lower = path.toLowerCase();
   final stat = await FileSystemEntity.type(path);
@@ -85,10 +86,7 @@ class _IosPayloadAppBundle {
   final String bundleName;
   String? bundleId;
   String? appName;
-  _IosPayloadAppBundle({
-    required this.installPath,
-    required this.bundleName,
-  });
+  _IosPayloadAppBundle({required this.installPath, required this.bundleName});
 }
 
 Future<PreparedIosInstallArtifact> _resolveIpa(
@@ -134,7 +132,10 @@ Future<PreparedIosInstallArtifact> _resolveIpa(
       bundles.add(
         _IosPayloadAppBundle(
           installPath: entry.path,
-          bundleName: name.replaceAll(RegExp(r'\.app$', caseSensitive: false), ''),
+          bundleName: name.replaceAll(
+            RegExp(r'\.app$', caseSensitive: false),
+            '',
+          ),
         ),
       );
     }
@@ -159,11 +160,13 @@ Future<PreparedIosInstallArtifact> _resolveIpa(
 
     // Multi-app .ipa: backfill bundle metadata for every payload entry,
     // then resolve via the caller's hint.
-    await Future.wait(bundles.map((b) async {
-      final info = await readIosBundleInfo(b.installPath);
-      b.bundleId = info.bundleId;
-      b.appName = info.appName;
-    }));
+    await Future.wait(
+      bundles.map((b) async {
+        final info = await readIosBundleInfo(b.installPath);
+        b.bundleId = info.bundleId;
+        b.appName = info.appName;
+      }),
+    );
     final hint = options.appIdentifierHint?.trim();
     if (hint == null || hint.isEmpty) {
       throw AppError(
@@ -246,12 +249,12 @@ Future<IosBundleInfo> readIosBundleInfo(String appBundlePath) async {
     return const IosBundleInfo();
   }
   final bundleId = await _readInfoPlistString(infoPlist, 'CFBundleIdentifier');
-  final displayName = await _readInfoPlistString(infoPlist, 'CFBundleDisplayName');
-  final bundleName = await _readInfoPlistString(infoPlist, 'CFBundleName');
-  return IosBundleInfo(
-    bundleId: bundleId,
-    appName: displayName ?? bundleName,
+  final displayName = await _readInfoPlistString(
+    infoPlist,
+    'CFBundleDisplayName',
   );
+  final bundleName = await _readInfoPlistString(infoPlist, 'CFBundleName');
+  return IosBundleInfo(bundleId: bundleId, appName: displayName ?? bundleName);
 }
 
 Future<String?> _readInfoPlistString(String plistPath, String key) async {

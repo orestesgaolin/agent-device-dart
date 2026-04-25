@@ -42,9 +42,7 @@ void main() {
       );
       expect(
         out,
-        contains(
-          "complete -c ad -f -n '__fish_use_subcommand' -a 'install'",
-        ),
+        contains("complete -c ad -f -n '__fish_use_subcommand' -a 'install'"),
       );
       expect(
         out,
@@ -55,11 +53,13 @@ void main() {
     test('rejects unknown shells', () {
       expect(
         () => buildCompletionScript('csh'),
-        throwsA(isA<AppError>().having(
-          (e) => e.code,
-          'code',
-          AppErrorCodes.invalidArgs,
-        )),
+        throwsA(
+          isA<AppError>().having(
+            (e) => e.code,
+            'code',
+            AppErrorCodes.invalidArgs,
+          ),
+        ),
       );
     });
 

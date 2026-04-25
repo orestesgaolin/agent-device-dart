@@ -1079,9 +1079,7 @@ class IosBackend extends Backend {
     }
     final prepared = await prepareIosInstallArtifact(
       source.path,
-      options: PrepareIosInstallArtifactOptions(
-        appIdentifierHint: target.app,
-      ),
+      options: PrepareIosInstallArtifactOptions(appIdentifierHint: target.app),
     );
     try {
       final udid = _udid(ctx);
@@ -1089,11 +1087,11 @@ class IosBackend extends Backend {
       if (kind == 'device') {
         await installIosDeviceApp(udid, prepared.installablePath);
       } else {
-        final r = await runCmd('xcrun', buildSimctlArgs([
-          'install',
-          udid,
-          prepared.installablePath,
-        ]), const ExecOptions(allowFailure: true, timeoutMs: 180000));
+        final r = await runCmd(
+          'xcrun',
+          buildSimctlArgs(['install', udid, prepared.installablePath]),
+          const ExecOptions(allowFailure: true, timeoutMs: 180000),
+        );
         if (r.exitCode != 0) {
           throw AppError(
             AppErrorCodes.commandFailed,
@@ -1140,14 +1138,15 @@ class IosBackend extends Backend {
     if (kind == 'device') {
       await uninstallIosDeviceApp(udid, bundleId);
     } else {
-      final r = await runCmd('xcrun', buildSimctlArgs([
-        'uninstall',
-        udid,
-        bundleId,
-      ]), const ExecOptions(allowFailure: true, timeoutMs: 60000));
+      final r = await runCmd(
+        'xcrun',
+        buildSimctlArgs(['uninstall', udid, bundleId]),
+        const ExecOptions(allowFailure: true, timeoutMs: 60000),
+      );
       if (r.exitCode != 0) {
         final combined = '${r.stdout}\n${r.stderr}'.toLowerCase();
-        final missing = combined.contains('no such') ||
+        final missing =
+            combined.contains('no such') ||
             combined.contains('not installed') ||
             combined.contains('found no app');
         if (!missing) {

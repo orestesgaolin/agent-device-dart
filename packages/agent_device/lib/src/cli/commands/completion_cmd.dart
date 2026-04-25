@@ -62,7 +62,13 @@ String buildCompletionScript(String shell) {
   };
 }
 
-const List<String> _platformValues = ['ios', 'android', 'macos', 'linux', 'apple'];
+const List<String> _platformValues = [
+  'ios',
+  'android',
+  'macos',
+  'linux',
+  'apple',
+];
 const List<String> _commonFlags = [
   '--help',
   '--json',
@@ -174,21 +180,23 @@ String _fishScript(List<String> subcommands) {
     lines.add(
       "complete -c agent-device -f -n '__fish_use_subcommand' -a '$cmd'",
     );
-    lines.add(
-      "complete -c ad -f -n '__fish_use_subcommand' -a '$cmd'",
-    );
+    lines.add("complete -c ad -f -n '__fish_use_subcommand' -a '$cmd'");
   }
   // Common flags (no argument).
-  for (final flag in const ['--help', '--json', '--verbose', '--debug', '--ephemeral-session']) {
+  for (final flag in const [
+    '--help',
+    '--json',
+    '--verbose',
+    '--debug',
+    '--ephemeral-session',
+  ]) {
     final long = flag.replaceFirst('--', '');
     lines.add('complete -c agent-device -l $long');
     lines.add('complete -c ad -l $long');
   }
   // Platform value completion.
   final platformChoices = _platformValues.join(' ');
-  lines.add(
-    "complete -c agent-device -l platform -x -a '$platformChoices'",
-  );
+  lines.add("complete -c agent-device -l platform -x -a '$platformChoices'");
   lines.add("complete -c ad -l platform -x -a '$platformChoices'");
   // Options that take string args (no useful value list).
   for (final opt in const ['serial', 'device', 'session']) {
