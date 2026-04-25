@@ -133,7 +133,7 @@ Future<void> launchIosDeviceProcess(
     '--device',
     udid,
     bundleId,
-    if (payloadUrl != null) payloadUrl,
+    ?payloadUrl,
   ];
   await runIosDevicectl(
     args,

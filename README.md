@@ -1,9 +1,6 @@
 # agent-device (Dart)
 
-Dart port of the [`agent-device`](./agent-device) TypeScript CLI for
-driving mobile UI automation, taking snapshots, capturing logs and
-video, and running `.ad` replay scripts against iOS and Android
-devices.
+Dart port of the [`agent-device`](https://github.com/callstackincubator/agent-device) TypeScript CLI for driving mobile UI automation, taking snapshots, capturing logs and video, and running `.ad` replay scripts against iOS and Android devices.
 
 Ships as both:
 

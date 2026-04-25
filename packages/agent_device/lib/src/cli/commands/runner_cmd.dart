@@ -29,8 +29,7 @@ class RunnerCommand extends Command<int> {
   String get name => 'runner';
 
   @override
-  String get description =>
-      'Manage the cached XCUITest runner (iOS only).';
+  String get description => 'Manage the cached XCUITest runner (iOS only).';
 }
 
 class RunnerStopCommand extends AgentDeviceCommand {
@@ -58,10 +57,10 @@ class RunnerStopCommand extends AgentDeviceCommand {
         : <String>[await _resolveSingleUdid()];
 
     if (udids.isEmpty) {
-      emitResult(
-        {'stopped': <String>[], 'count': 0},
-        humanFormat: (_) => 'no cached runners',
-      );
+      emitResult({
+        'stopped': <String>[],
+        'count': 0,
+      }, humanFormat: (_) => 'no cached runners');
       return 0;
     }
 

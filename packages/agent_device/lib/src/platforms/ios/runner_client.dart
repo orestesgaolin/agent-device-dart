@@ -411,10 +411,10 @@ class IosRunnerClient {
         'udid': udid,
         'kind': kind.wire,
         'port': port,
-        if (tunnelIp != null) 'tunnelIp': tunnelIp,
+        'tunnelIp': ?tunnelIp,
         'xctestrunPath': xctestrunPath,
         'logTail': tail,
-        if (hint != null) 'hint': hint,
+        'hint': ?hint,
       },
     );
   }
@@ -588,9 +588,7 @@ class IosRunnerClient {
       await Future<void>.delayed(const Duration(milliseconds: 250));
       return _postCommand(url, body, timeout: timeout);
     } on HttpException catch (e) {
-      _debugLog(
-        '[runner] retry after HTTP framing error: ${e.message}',
-      );
+      _debugLog('[runner] retry after HTTP framing error: ${e.message}');
       await Future<void>.delayed(const Duration(milliseconds: 250));
       return _postCommand(url, body, timeout: timeout);
     }

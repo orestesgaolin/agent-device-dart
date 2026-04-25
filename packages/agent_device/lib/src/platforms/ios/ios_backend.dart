@@ -388,7 +388,7 @@ class IosBackend extends Backend {
         : const Duration(seconds: 30);
     final res = await IosRunnerClient.send(session, {
       'command': 'recordStop',
-      if (bundleId != null) 'appBundleId': bundleId,
+      'appBundleId': ?bundleId,
     }, timeout: stopTimeout);
     if (!res.ok) {
       throw AppError(

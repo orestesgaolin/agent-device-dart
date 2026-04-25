@@ -124,7 +124,7 @@ class LogsCommand extends AgentDeviceCommand {
       emitResult({
         'entries': res.entries.length,
         'backend': res.backend,
-        if (outPath != null) 'outPath': outPath,
+        'outPath': ?outPath,
       });
       return 0;
     }
