@@ -675,7 +675,8 @@ Future<List<String>> _dispatch({
           'exists',
           waitTarget,
           timeout: Duration(
-            milliseconds: int.tryParse(legacyWait.selectorTimeout ?? '') ?? 10000,
+            milliseconds:
+                int.tryParse(legacyWait.selectorTimeout ?? '') ?? 10000,
           ),
         );
         return const [];

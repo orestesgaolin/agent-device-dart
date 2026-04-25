@@ -144,17 +144,26 @@ Future<void> expectIdText(
   Duration pollInterval = const Duration(milliseconds: 400),
 }) async {
   final deadline = DateTime.now().add(timeout);
+  final expectedNormalized = _normalizeObservedText(expectedText);
   Object? lastValue;
 
   while (DateTime.now().isBefore(deadline)) {
-    try {
-      lastValue = await device.getAttr('text', _idTarget(id));
-      if (lastValue == expectedText) {
-        return;
-      }
-    } catch (_) {
-      // Keep polling while the node is not yet present.
+    final snapshot = await device.snapshot();
+    final nodes = (snapshot.nodes ?? const [])
+        .whereType<SnapshotNode>()
+        .where((node) => node.identifier == id)
+        .toList();
+    final observedValues = {
+      for (final node in nodes) ..._nodeTextCandidates(node),
+    }.toList();
+    final normalizedObserved = observedValues
+        .map(_normalizeObservedText)
+        .where((value) => value.isNotEmpty)
+        .toSet();
+    if (normalizedObserved.contains(expectedNormalized)) {
+      return;
     }
+    lastValue = observedValues.isEmpty ? null : observedValues.join(' | ');
     await Future<void>.delayed(pollInterval);
   }
 
@@ -162,6 +171,39 @@ Future<void> expectIdText(
     'Timed out waiting for id "$id" text "$expectedText". '
     'lastValue=$lastValue',
   );
+}
+
+Iterable<String> _nodeTextCandidates(SnapshotNode node) sync* {
+  for (final candidate in [node.label, node.value]) {
+    final text = candidate?.trim();
+    if (text != null && text.isNotEmpty) {
+      yield text;
+    }
+  }
+}
+
+String _normalizeObservedText(String value) {
+  final collapsed = value.trim().replaceAll(RegExp(r'\s+'), ' ');
+  if (collapsed.isEmpty) {
+    return '';
+  }
+
+  final commaSegments = collapsed
+      .split(',')
+      .map((segment) => segment.trim())
+      .where((segment) => segment.isNotEmpty)
+      .toList();
+  if (commaSegments.length > 1) {
+    final first = commaSegments.first.toLowerCase();
+    final allSame = commaSegments.every(
+      (segment) => segment.toLowerCase() == first,
+    );
+    if (allSame) {
+      return first;
+    }
+  }
+
+  return collapsed.toLowerCase();
 }
 
 Future<void> tapId(

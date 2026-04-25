@@ -722,7 +722,9 @@ class _DiagnosticsScreenState extends State<DiagnosticsScreen> {
                   ),
                 ),
                 const SizedBox(height: 8),
-                const Text('This bottom sheet stays simple for replay scripts.'),
+                const Text(
+                  'This bottom sheet stays simple for replay scripts.',
+                ),
                 const SizedBox(height: 16),
                 _identifiedControl(
                   FixtureIds.diagnosticsPinStatusSheetButton,

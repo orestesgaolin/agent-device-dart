@@ -3,7 +3,7 @@ name: Fixture Live
 on:
   pull_request:
   push:
-    branches: [main]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
@@ -11,6 +11,9 @@ jobs:
     name: Android Fixture Live
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      AGENT_DEVICE_STATE_DIR: ${{ github.workspace }}/.tmp/agent-device-android
+      FIXTURE_ARTIFACT_DIR: ${{ github.workspace }}/.tmp/fixture-live-android
     steps:
       - uses: actions/checkout@v6
 
@@ -21,7 +24,7 @@ jobs:
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
       - name: Get Dart dependencies
         run: dart pub get
@@ -29,6 +32,15 @@ jobs:
       - name: Get Flutter fixture dependencies
         run: flutter pub get
         working-directory: test_apps/agent_device_fixture_app
+
+      - name: Ensure ffmpeg
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y ffmpeg
+          fi
 
       - name: Enable KVM
         run: |
@@ -44,27 +56,27 @@ jobs:
           profile: pixel_7
           target: google_apis
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics
-          script: |
-            set -euo pipefail
-            pushd test_apps/agent_device_fixture_app
-            flutter build apk --debug
-            adb install -r build/app/outputs/flutter-apk/app-debug.apk
-            popd
+          script: bash .github/scripts/run-fixture-android-live.sh
 
-            dart run packages/agent_device/bin/agent_device.dart open com.example.agent_device_fixture_app --session fixture-android-ci --platform android --serial emulator-5554 --json
-            dart run packages/agent_device/bin/agent_device.dart snapshot --session fixture-android-ci --platform android --serial emulator-5554 --json
-
-            AGENT_DEVICE_FIXTURE_ANDROID_LIVE=1 \
-            AGENT_DEVICE_FIXTURE_ANDROID_SERIAL=emulator-5554 \
-            dart test packages/agent_device/test/platforms/android/fixture_app_live_test.dart
+      - name: Upload Android fixture artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-fixture-live-artifacts
+          if-no-files-found: ignore
+          path: |
+            ${{ env.AGENT_DEVICE_STATE_DIR }}/**
+            ${{ env.FIXTURE_ARTIFACT_DIR }}/**
 
   ios-fixture-live:
     name: iOS Fixture Live
     runs-on: macos-26
     timeout-minutes: 80
     env:
-      IOS_RUNTIME_VERSION: '26.2'
-      IOS_SIMULATOR_NAME: 'iPhone 17 Pro'
+      AGENT_DEVICE_STATE_DIR: ${{ github.workspace }}/.tmp/agent-device-ios
+      FIXTURE_ARTIFACT_DIR: ${{ github.workspace }}/.tmp/fixture-live-ios
+      IOS_RUNTIME_VERSION: "26.2"
+      IOS_SIMULATOR_NAME: "iPhone 17 Pro"
     steps:
       - uses: actions/checkout@v6
 
@@ -78,6 +90,14 @@ jobs:
       - name: Get Flutter fixture dependencies
         run: flutter pub get
         working-directory: test_apps/agent_device_fixture_app
+
+      - name: Ensure ffmpeg
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            brew install ffmpeg
+          fi
 
       - name: Resolve and boot simulator
         id: boot-sim
@@ -109,13 +129,17 @@ jobs:
             test_apps/agent_device_fixture_app/build/ios/iphonesimulator/Runner.app
 
       - name: CLI smoke on fixture app
-        run: |
-          set -euo pipefail
-          dart run packages/agent_device/bin/agent_device.dart open com.example.agentDeviceFixtureApp --session fixture-ios-ci --platform ios --serial "${{ steps.boot-sim.outputs.udid }}" --json
-          dart run packages/agent_device/bin/agent_device.dart snapshot --session fixture-ios-ci --platform ios --serial "${{ steps.boot-sim.outputs.udid }}" --json
-
-      - name: Package live tests on fixture app
         env:
-          AGENT_DEVICE_FIXTURE_IOS_LIVE: '1'
-          AGENT_DEVICE_FIXTURE_IOS_UDID: ${{ steps.boot-sim.outputs.udid }}
-        run: dart test packages/agent_device/test/platforms/ios/fixture_app_live_test.dart
+          FIXTURE_IOS_UDID: ${{ steps.boot-sim.outputs.udid }}
+        run: bash .github/scripts/run-fixture-ios-live.sh
+
+      - name: Upload iOS fixture artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: ios-fixture-live-artifacts
+          if-no-files-found: ignore
+          path: |
+            ${{ env.AGENT_DEVICE_STATE_DIR }}/**
+            ${{ env.FIXTURE_ARTIFACT_DIR }}/**
+            ios-runner/build/Logs/**

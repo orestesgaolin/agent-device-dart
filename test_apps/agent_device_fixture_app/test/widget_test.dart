@@ -38,11 +38,11 @@ void main() {
     await tester.tap(bySemanticId(FixtureIds.formSubmitProfileButton));
     await tester.pumpAndSettle();
 
+    expect(bySemanticId(FixtureIds.formSubmissionSummaryText), findsOneWidget);
     expect(
-      bySemanticId(FixtureIds.formSubmissionSummaryText),
+      find.textContaining('Saved profile for Taylor Tester'),
       findsOneWidget,
     );
-    expect(find.textContaining('Saved profile for Taylor Tester'), findsOneWidget);
   });
 
   testWidgets('state lab loads async recommendations', (tester) async {
@@ -66,7 +66,13 @@ void main() {
     await tester.pump(const Duration(milliseconds: 700));
     await tester.pumpAndSettle();
 
-    expect(bySemanticId(FixtureIds.stateRecommendationWarmCache), findsOneWidget);
-    expect(bySemanticId(FixtureIds.stateRecommendationCaptureLogs), findsOneWidget);
+    expect(
+      bySemanticId(FixtureIds.stateRecommendationWarmCache),
+      findsOneWidget,
+    );
+    expect(
+      bySemanticId(FixtureIds.stateRecommendationCaptureLogs),
+      findsOneWidget,
+    );
   });
 }

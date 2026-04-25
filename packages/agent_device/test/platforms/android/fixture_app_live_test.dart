@@ -5,6 +5,7 @@ library;
 import 'dart:io';
 
 import 'package:agent_device/agent_device.dart';
+import 'package:agent_device/src/runtime/interaction_target.dart';
 import 'package:test/test.dart';
 
 // ignore: avoid_relative_lib_imports
@@ -79,8 +80,23 @@ void main() {
         FixtureIds.formStatusMessageField,
         'Ready to verify on sim',
       );
+      await device.pressBack();
+      await swipeUp(device, startY: 620, endY: 360);
+      await device.wait(
+        'visible',
+        InteractionTarget.selector(
+          'id="${FixtureIds.formAcceptTestTermsCheckbox}"',
+        ),
+      );
       await tapId(device, FixtureIds.formAcceptTestTermsCheckbox);
+      await device.wait(
+        'visible',
+        InteractionTarget.selector(
+          'id="${FixtureIds.formSubmitProfileButton}"',
+        ),
+      );
       await tapId(device, FixtureIds.formSubmitProfileButton);
+      await swipeUp(device, startY: 620, endY: 360);
       await expectIdText(
         device,
         FixtureIds.formSubmissionSummaryText,
@@ -115,8 +131,10 @@ void main() {
         FixtureIds.catalogVisibleTasksText,
         'Visible tasks: 1',
       );
+      await device.pressBack();
       await expectVisibleId(device, FixtureIds.catalogTaskCrashRecovery);
       await expectHiddenId(device, FixtureIds.catalogTaskReleaseChecklist);
+      await swipeUp(device, startY: 560, endY: 240);
       await tapId(device, FixtureIds.catalogTaskCrashRecovery);
       await expectVisibleId(
         device,

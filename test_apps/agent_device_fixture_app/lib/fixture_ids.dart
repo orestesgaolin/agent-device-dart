@@ -26,8 +26,7 @@ class FixtureIds {
   static const catalogTaskReleaseChecklist =
       'fixture.catalog.task.release_checklist';
   static const catalogTaskOfflineMode = 'fixture.catalog.task.offline_mode';
-  static const catalogTaskCrashRecovery =
-      'fixture.catalog.task.crash_recovery';
+  static const catalogTaskCrashRecovery = 'fixture.catalog.task.crash_recovery';
   static const catalogTaskDeepLinks = 'fixture.catalog.task.deep_links';
 
   static const taskDetailSummaryText = 'fixture.task_detail.summary_text';
@@ -36,10 +35,8 @@ class FixtureIds {
   static const taskDetailStatusText = 'fixture.task_detail.status_text';
 
   static const stateBatchCountText = 'fixture.state.batch_count_text';
-  static const stateIncreaseBatchButton =
-      'fixture.state.increase_batch_button';
-  static const stateDecreaseBatchButton =
-      'fixture.state.decrease_batch_button';
+  static const stateIncreaseBatchButton = 'fixture.state.increase_batch_button';
+  static const stateDecreaseBatchButton = 'fixture.state.decrease_batch_button';
   static const stateResetBatchButton = 'fixture.state.reset_batch_button';
   static const stateProgressTargetText = 'fixture.state.progress_target_text';
   static const stateProgressSlider = 'fixture.state.progress_slider';
