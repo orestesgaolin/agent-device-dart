@@ -260,10 +260,7 @@ Future<String?> readAndroidTextAtPoint(String serial, int x, int y) async {
     final text = _decodeXmlEntities(attrs.text ?? '');
     final focused = attrs.focused ?? false;
     if (text.isEmpty) continue;
-    final area = (rect.width * rect.height).abs().toInt().clamp(
-      1,
-      double.infinity.toInt(),
-    );
+    final area = ((rect.width * rect.height).abs().round()).clamp(1, 1 << 30);
     final containsPoint =
         x >= rect.x &&
         x <= (rect.x + rect.width).toInt() &&

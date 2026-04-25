@@ -29,7 +29,8 @@ void main() {
   late String udid;
 
   setUpAll(() async {
-    udid = Platform.environment['AGENT_DEVICE_FIXTURE_IOS_UDID'] ??
+    udid =
+        Platform.environment['AGENT_DEVICE_FIXTURE_IOS_UDID'] ??
         await detectBootedIosSimulatorUdid();
     device = await AgentDevice.open(
       backend: const IosBackend(),
@@ -122,9 +123,17 @@ void main() {
     'updates State Lab counters, snackbar, and async recommendations',
     () async {
       await tapId(device, FixtureIds.homeOpenStateLabButton);
-      await expectIdText(device, FixtureIds.stateBatchCountText, 'Batch count: 2');
+      await expectIdText(
+        device,
+        FixtureIds.stateBatchCountText,
+        'Batch count: 2',
+      );
       await tapId(device, FixtureIds.stateIncreaseBatchButton);
-      await expectIdText(device, FixtureIds.stateBatchCountText, 'Batch count: 3');
+      await expectIdText(
+        device,
+        FixtureIds.stateBatchCountText,
+        'Batch count: 3',
+      );
       await tapId(device, FixtureIds.stateShowConfirmationSnackbarButton);
       await expectIdText(
         device,

@@ -136,9 +136,17 @@ void main() {
     'updates State Lab counters, snackbar, and async recommendations',
     () async {
       await tapId(device, FixtureIds.homeOpenStateLabButton);
-      await expectIdText(device, FixtureIds.stateBatchCountText, 'Batch count: 2');
+      await expectIdText(
+        device,
+        FixtureIds.stateBatchCountText,
+        'Batch count: 2',
+      );
       await tapId(device, FixtureIds.stateIncreaseBatchButton);
-      await expectIdText(device, FixtureIds.stateBatchCountText, 'Batch count: 3');
+      await expectIdText(
+        device,
+        FixtureIds.stateBatchCountText,
+        'Batch count: 3',
+      );
       await tapId(device, FixtureIds.stateShowConfirmationSnackbarButton);
       await expectIdText(
         device,
@@ -160,7 +168,10 @@ void main() {
     'handles Diagnostics dialog, banner toggle, and status sheet',
     () async {
       await tapId(device, FixtureIds.homeOpenDiagnosticsButton);
-      await expectVisibleId(device, FixtureIds.diagnosticsOpenConfirmationDialogButton);
+      await expectVisibleId(
+        device,
+        FixtureIds.diagnosticsOpenConfirmationDialogButton,
+      );
       await expectVisibleId(device, FixtureIds.diagnosticsPermissionBanner);
       await tapId(device, FixtureIds.diagnosticsOpenConfirmationDialogButton);
       await expectVisibleId(device, FixtureIds.diagnosticsDialogTitleText);

@@ -323,9 +323,7 @@ num _readRectNumber(Object? value, String key, String label) {
   if (value is num) {
     return value;
   }
-  throw TestFailure(
-    'Match for "$label" had invalid rect.$key value: $value',
-  );
+  throw TestFailure('Match for "$label" had invalid rect.$key value: $value');
 }
 
 Map<String, Object?> _bestTapHit(List<Map<String, Object?>> hits) {
@@ -390,10 +388,7 @@ String nodeSummary(SnapshotNode node) {
   return '${node.type ?? 'node'}:$text';
 }
 
-Future<void> _tapBestTextMatch(
-  AgentDevice device,
-  String text,
-) async {
+Future<void> _tapBestTextMatch(AgentDevice device, String text) async {
   final snapshot = await device.snapshot();
   final nodes = (snapshot.nodes ?? const []).whereType<SnapshotNode>().toList();
   final query = _normalizeSelectorText(text);
@@ -454,7 +449,9 @@ SnapshotNode? _findNearestAncestorWithRect(
     visited.add(current.ref);
 
     try {
-      final parent = nodes.firstWhere((candidate) => candidate.index == current.parentIndex);
+      final parent = nodes.firstWhere(
+        (candidate) => candidate.index == current.parentIndex,
+      );
       if (parent.rect != null) {
         return parent;
       }

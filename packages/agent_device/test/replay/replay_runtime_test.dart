@@ -186,9 +186,7 @@ void main() {
       final backend = _SelectorBackend();
       final device = await openDevice(backend);
       final script = File('${tmp.path}/is-exists.ad');
-      await script.writeAsString(
-        'is exists "label=\\"Ready status\\""\n',
-      );
+      await script.writeAsString('is exists "label=\\"Ready status\\""\n');
 
       final result = await runReplayScript(
         scriptPath: script.path,
@@ -219,9 +217,7 @@ void main() {
       final backend = _SelectorBackend();
       final device = await openDevice(backend);
       final script = File('${tmp.path}/wait-exists.ad');
-      await script.writeAsString(
-        'wait exists "label=\\"Ready status\\"" 25\n',
-      );
+      await script.writeAsString('wait exists "label=\\"Ready status\\"" 25\n');
 
       final result = await runReplayScript(
         scriptPath: script.path,

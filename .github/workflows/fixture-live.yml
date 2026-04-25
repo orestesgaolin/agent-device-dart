@@ -30,8 +30,14 @@ jobs:
         run: flutter pub get
         working-directory: test_apps/agent_device_fixture_app
 
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
       - name: Build, install, and test on Android emulator
-        uses: reactivecircus/android-emulator-runner@v2
+        uses: reactivecircus/android-emulator-runner@b530d96654c385303d652368551fb075bc2f0b6b # v2.35.0
         with:
           api-level: 36
           arch: x86_64
@@ -45,8 +51,8 @@ jobs:
             adb install -r build/app/outputs/flutter-apk/app-debug.apk
             popd
 
-            dart run packages/agent_device/bin/agent_device.dart --session fixture-android-ci open com.example.agent_device_fixture_app --platform android --serial emulator-5554 --json
-            dart run packages/agent_device/bin/agent_device.dart --session fixture-android-ci snapshot --platform android --serial emulator-5554 --json
+            dart run packages/agent_device/bin/agent_device.dart open com.example.agent_device_fixture_app --session fixture-android-ci --platform android --serial emulator-5554 --json
+            dart run packages/agent_device/bin/agent_device.dart snapshot --session fixture-android-ci --platform android --serial emulator-5554 --json
 
             AGENT_DEVICE_FIXTURE_ANDROID_LIVE=1 \
             AGENT_DEVICE_FIXTURE_ANDROID_SERIAL=emulator-5554 \
@@ -105,8 +111,8 @@ jobs:
       - name: CLI smoke on fixture app
         run: |
           set -euo pipefail
-          dart run packages/agent_device/bin/agent_device.dart --session fixture-ios-ci open com.example.agentDeviceFixtureApp --platform ios --serial "${{ steps.boot-sim.outputs.udid }}" --json
-          dart run packages/agent_device/bin/agent_device.dart --session fixture-ios-ci snapshot --platform ios --serial "${{ steps.boot-sim.outputs.udid }}" --json
+          dart run packages/agent_device/bin/agent_device.dart open com.example.agentDeviceFixtureApp --session fixture-ios-ci --platform ios --serial "${{ steps.boot-sim.outputs.udid }}" --json
+          dart run packages/agent_device/bin/agent_device.dart snapshot --session fixture-ios-ci --platform ios --serial "${{ steps.boot-sim.outputs.udid }}" --json
 
       - name: Package live tests on fixture app
         env:

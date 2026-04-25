@@ -83,6 +83,29 @@ void main() {
       expect(tree.children[0].children, hasLength(2));
     });
 
+    test(
+      'parseUiHierarchyTree falls back to content-desc when text is empty',
+      () {
+        final xml = '''
+        <hierarchy>
+          <node
+            class="android.view.View"
+            text=""
+            content-desc="Scenario Lab"
+            resource-id="fixture.home.scenario_title"
+            bounds="[48,372][1232,480]" />
+        </hierarchy>
+      ''';
+
+        final tree = parseUiHierarchyTree(xml);
+        final node = tree.children.single;
+
+        expect(node.label, 'Scenario Lab');
+        expect(node.value, 'Scenario Lab');
+        expect(node.identifier, 'fixture.home.scenario_title');
+      },
+    );
+
     test('parseUiHierarchy builds raw snapshot nodes', () {
       final xml = '''
         <hierarchy>
@@ -182,6 +205,29 @@ void main() {
         built.nodes.where((n) => (n.hittable ?? false)).length,
         greaterThan(0),
       );
+    });
+
+    test('parseUiHierarchy keeps structural nodes with meaningful ids', () {
+      final xml = '''
+        <hierarchy>
+          <node class="FrameLayout" bounds="[0,0][1440,3120]">
+            <node
+              class="android.view.View"
+              text=""
+              content-desc="Batch count: 2"
+              resource-id="fixture.state.batch_count_text"
+              bounds="[48,640][720,720]" />
+          </node>
+        </hierarchy>
+      ''';
+
+      final result = parseUiHierarchy(xml, 100, const SnapshotOptions());
+      final node = result.nodes.singleWhere(
+        (candidate) => candidate.identifier == 'fixture.state.batch_count_text',
+      );
+
+      expect(node.label, 'Batch count: 2');
+      expect(node.value, 'Batch count: 2');
     });
 
     test('findBounds locates nodes by text', () {

@@ -315,11 +315,12 @@ AndroidUiHierarchy parseUiHierarchyTree(String xml) {
     final attrs = readNodeAttributes(token);
     final rect = parseBounds(attrs.bounds);
     final parent = stack.last;
+    final semanticText = _firstNonEmptyAndroidText(attrs.text, attrs.desc);
 
     final node = AndroidUiHierarchy(
       type: attrs.className,
-      label: attrs.text ?? attrs.desc,
-      value: attrs.text,
+      label: semanticText,
+      value: semanticText,
       identifier: attrs.resourceId,
       rect: rect,
       enabled: attrs.enabled,
@@ -379,11 +380,23 @@ bool _shouldIncludeAndroidNode(
   if (isStructural || isVisual) {
     if (node.hittable ?? false) return true;
     if (hasMeaningfulText) return true;
-    if (hasMeaningfulId && descendantHittable) return true;
+    if (hasMeaningfulId) return true;
     return descendantHittable;
   }
 
   return true;
+}
+
+String? _firstNonEmptyAndroidText(String? text, String? desc) {
+  final trimmedText = text?.trim();
+  if (trimmedText != null && trimmedText.isNotEmpty) {
+    return trimmedText;
+  }
+  final trimmedDesc = desc?.trim();
+  if (trimmedDesc != null && trimmedDesc.isNotEmpty) {
+    return trimmedDesc;
+  }
+  return null;
 }
 
 bool _isCollectionContainerType(String? type) {
