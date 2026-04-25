@@ -91,7 +91,7 @@ another both land on the same device.
 | `logs --since 30s --out <path>` (one-shot) | ✅ (logcat -T)  | ✅ (simctl log show) | ❌ (use `--stream` instead — Apple has no host-side `log show` for devices) |
 | `logs --stream --out <path>` / `logs --stop` | ✅ (logcat --pid + cross-invocation PID cache) | ✅ (simctl log stream predicate) | ✅ (idevicesyslog via libimobiledevice) |
 | `record start` / `record stop`    | ✅ (screenrecord + pull) | ✅ (XCUITest runner + sandbox pull) | ✅ (runner + `devicectl copy from` — needs device trust + Developer Mode) |
-| `perf [--metric cpu\|memory]`      | ✅ (dumpsys)           | ✅ (simctl spawn ps)  | ✅ (1s xctrace + XML; cpu as lifetime seconds) |
+| `perf [--metric cpu\|memory]`      | ✅ (dumpsys)           | ✅ (simctl spawn ps)  | ✅ (xctrace 2× 1s + delta — true CPU%) |
 | `network <logPath>` (HTTP from logs) | ✅ (cross-line Android enrichment) | ✅       | ✅                     |
 | `replay <script.ad>` / `test <glob>` | ✅                  | ✅                    | ✅                     |
 | Self-healing replay (`--replay-update`) | ✅               | ✅                    | ✅                     |
@@ -214,9 +214,8 @@ Key design choices vs. the TS source:
 - `.ipa` install / uninstall / reinstall for physical iOS (needs the
   install-artifact archive-prep chain — separate effort)
 - Android pinch multi-touch (runner gap, not a Dart gap)
-- iOS record/fps/quality → replay-script flags end-to-end
-- xctrace CPU%: currently only lifetime CPU seconds are reported; a
-  delta % would need two consecutive traces a second apart and a diff
+- `record --hide-touches` overlay (TS does it as an ffmpeg post-pass
+  driven by the runner's gesture-event log — sizeable separate port)
 
 **Phase 11 — React Native / metro integration** *(not started)*
 - `metro.ts` / `metro-companion.ts` / `remote-config*.ts` / `remote-connection-state.ts` port (~1500 LOC of HTTP client + runtime-hint injection). Lets `.ad` scripts bootstrap against a running metro dev server so the launched app loads your current un-bundled JS.

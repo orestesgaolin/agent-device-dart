@@ -60,4 +60,139 @@ void main() {
       expect(parseIosDevicePerfXml('not even xml'), isEmpty);
     });
   });
+
+  group('computeIosDevicePerfDelta', () {
+    final t1 = DateTime.utc(2026, 1, 1, 12, 0, 0);
+    final t2 = t1.add(const Duration(seconds: 2));
+
+    test('CPU% = ΔcpuTime / wall * 100, summed across matched pids', () {
+      // Same 2 pids in both snapshots. Pid 100 burned 0.5s of CPU over
+      // 2s wall (= 25%). Pid 200 burned 1.0s (= 50%). Total = 75%.
+      final first = [
+        const IosDeviceProcessSample(
+          pid: 100,
+          processName: 'demo (100)',
+          cpuTimeNs: 1_000_000_000,
+          residentMemoryBytes: 100_000_000,
+        ),
+        const IosDeviceProcessSample(
+          pid: 200,
+          processName: 'demo (200)',
+          cpuTimeNs: 2_000_000_000,
+          residentMemoryBytes: 50_000_000,
+        ),
+      ];
+      final second = [
+        const IosDeviceProcessSample(
+          pid: 100,
+          processName: 'demo (100)',
+          cpuTimeNs: 1_500_000_000,
+          residentMemoryBytes: 110_000_000,
+        ),
+        const IosDeviceProcessSample(
+          pid: 200,
+          processName: 'demo (200)',
+          cpuTimeNs: 3_000_000_000,
+          residentMemoryBytes: 60_000_000,
+        ),
+      ];
+      final r = computeIosDevicePerfDelta(
+        firstSamples: first,
+        secondSamples: second,
+        firstCapturedAt: t1,
+        secondCapturedAt: t2,
+        processMatcher: (n) => n.startsWith('demo'),
+        matcherLabel: 'demo',
+      );
+      expect(r.cpu.usagePercent, closeTo(75.0, 0.01));
+      // Memory uses the second snapshot — 110+60 = 170 MB ≈ 166015 kB.
+      expect(r.memory.residentMemoryKb, equals(((110_000_000 + 60_000_000) / 1024).round()));
+      expect(r.cpu.matchedProcesses, containsAll(['demo (100)', 'demo (200)']));
+    });
+
+    test('skips CPU contribution from pids without a baseline', () {
+      // Pid 200 is new in the second snapshot — no baseline to diff
+      // against, so it contributes 0 to CPU delta but full memory.
+      final first = [
+        const IosDeviceProcessSample(
+          pid: 100,
+          processName: 'demo (100)',
+          cpuTimeNs: 1_000_000_000,
+          residentMemoryBytes: 100_000_000,
+        ),
+      ];
+      final second = [
+        const IosDeviceProcessSample(
+          pid: 100,
+          processName: 'demo (100)',
+          cpuTimeNs: 1_500_000_000,
+          residentMemoryBytes: 110_000_000,
+        ),
+        const IosDeviceProcessSample(
+          pid: 200,
+          processName: 'demo (200)',
+          cpuTimeNs: 999_000_000_000, // huge lifetime, but no prior
+          residentMemoryBytes: 50_000_000,
+        ),
+      ];
+      final r = computeIosDevicePerfDelta(
+        firstSamples: first,
+        secondSamples: second,
+        firstCapturedAt: t1,
+        secondCapturedAt: t2,
+        processMatcher: (n) => n.startsWith('demo'),
+        matcherLabel: 'demo',
+      );
+      expect(r.cpu.usagePercent, closeTo(25.0, 0.01));
+    });
+
+    test('throws COMMAND_FAILED when nothing matches the second snapshot', () {
+      expect(
+        () => computeIosDevicePerfDelta(
+          firstSamples: const [],
+          secondSamples: const [
+            IosDeviceProcessSample(
+              pid: 1,
+              processName: 'launchd',
+              cpuTimeNs: 1,
+              residentMemoryBytes: 1,
+            ),
+          ],
+          firstCapturedAt: t1,
+          secondCapturedAt: t2,
+          processMatcher: (_) => false,
+          matcherLabel: 'demo',
+        ),
+        throwsA(isA<Object>()),
+      );
+    });
+
+    test('throws when the wall window is zero/negative', () {
+      expect(
+        () => computeIosDevicePerfDelta(
+          firstSamples: const [
+            IosDeviceProcessSample(
+              pid: 100,
+              processName: 'demo (100)',
+              cpuTimeNs: 0,
+              residentMemoryBytes: 0,
+            ),
+          ],
+          secondSamples: const [
+            IosDeviceProcessSample(
+              pid: 100,
+              processName: 'demo (100)',
+              cpuTimeNs: 0,
+              residentMemoryBytes: 0,
+            ),
+          ],
+          firstCapturedAt: t1,
+          secondCapturedAt: t1, // same timestamp
+          processMatcher: (n) => n.startsWith('demo'),
+          matcherLabel: 'demo',
+        ),
+        throwsA(isA<Object>()),
+      );
+    });
+  });
 }

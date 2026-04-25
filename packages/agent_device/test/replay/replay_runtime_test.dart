@@ -75,6 +75,25 @@ void main() {
       expect(result.steps.last.artifactPaths, contains(outPath));
     });
 
+    test('record start --fps / --quality forward through replay', () async {
+      final backend = _RecordingBackend();
+      final device = await openDevice(backend);
+      final script = File('${tmp.path}/record-flags.ad');
+      final outPath = '${tmp.path}/rec.mp4';
+      await script.writeAsString(
+        'record start $outPath --fps 30 --quality 7\n'
+        'record stop $outPath\n',
+      );
+      final result = await runReplayScript(
+        scriptPath: script.path,
+        device: device,
+      );
+      expect(result.ok, isTrue, reason: result.steps.toString());
+      final start = backend.calls.firstWhere((c) => c.name == 'startRecording');
+      expect(start.args['fps'], equals(30));
+      expect(start.args['quality'], equals(7));
+    });
+
     test('appstate dispatches a read-only getAppState call', () async {
       final backend = _RecordingBackend();
       final device = await openDevice(backend);
@@ -437,7 +456,12 @@ class _RecordingBackend extends Backend {
     BackendCommandContext ctx,
     BackendRecordingOptions? options,
   ) async {
-    _record('startRecording', {'outPath': options?.outPath});
+    _record('startRecording', {
+      'outPath': options?.outPath,
+      'fps': options?.fps,
+      'quality': options?.quality,
+      'showTouches': options?.showTouches,
+    });
     return BackendRecordingResult(path: options?.outPath);
   }
 

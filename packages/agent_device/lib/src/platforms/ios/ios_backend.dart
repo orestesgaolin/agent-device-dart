@@ -674,12 +674,14 @@ class IosBackend extends Backend {
   /// filtered by the app's `CFBundleExecutable`, reports aggregate
   /// `cpu` (percent) and `memory.resident` (kB).
   ///
-  /// Physical-device path: `xctrace record --template 'Activity Monitor'
-  /// --time-limit 1s` + XML export, filters rows whose process name
-  /// contains the bundle id's last segment, reports `cpu.lifetime`
-  /// (seconds of cumulative CPU time on core — not a delta %) and
-  /// `memory.resident` (kB). For a true CPU% take two readings a
-  /// second apart and diff; we don't synthesise that here.
+  /// Physical-device path: two consecutive `xctrace record --template
+  /// 'Activity Monitor' --time-limit 1s` traces + XML export. Filters
+  /// rows whose process name contains the bundle id's last segment,
+  /// diffs `cpu-total` per pid across the two captures, and reports
+  /// aggregate `cpu` (percent) + `memory.resident` (kB) from the
+  /// second snapshot. Multi-core processes can exceed 100%, matching
+  /// `top` semantics. Total wall time is roughly two xctrace
+  /// invocations (~15-20s).
   @override
   Future<BackendMeasurePerfResult> measurePerf(
     BackendCommandContext ctx,
@@ -717,16 +719,16 @@ class IosBackend extends Backend {
       if (wantCpu) {
         metrics.add(
           BackendPerfMetric(
-            name: 'cpu.lifetime',
+            name: 'cpu',
             value: sample.cpu.usagePercent,
-            unit: 'seconds',
+            unit: 'percent',
             status: 'ok',
             metadata: {
               'method': sample.cpu.method,
               'description':
-                  'Lifetime CPU time on core, aggregated across matched '
-                  'processes. Not a per-sample delta — take two readings '
-                  'a second apart and subtract to derive CPU%.',
+                  'Per-core CPU% derived by diffing cpu-total across two '
+                  'xctrace captures, aggregated across matched processes. '
+                  'Multi-core processes can exceed 100%.',
               'matchedProcesses': sample.cpu.matchedProcesses,
               'measuredAt': sample.cpu.measuredAt,
             },
@@ -743,8 +745,8 @@ class IosBackend extends Backend {
             metadata: {
               'method': sample.memory.method,
               'description':
-                  'memory-real bytes from the same xctrace window, '
-                  'aggregated.',
+                  'memory-real bytes from the second xctrace capture, '
+                  'aggregated across matched processes.',
               'matchedProcesses': sample.memory.matchedProcesses,
               'measuredAt': sample.memory.measuredAt,
             },

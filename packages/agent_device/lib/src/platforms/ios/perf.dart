@@ -432,18 +432,49 @@ String? _resolveProcessName(
   return null;
 }
 
-/// Sample physical-device CPU + memory. Records a 1s trace, exports,
-/// filters rows by [processMatcher] (passed each "AppName (pid)"
-/// string), aggregates. Throws if nothing matches.
+/// Sample physical-device CPU + memory. Records two consecutive
+/// xctrace activity-monitor traces and diffs `cpu-total` per matched
+/// pid to produce a real CPU%. The wall-clock window is the time
+/// between the two captures (each xctrace invocation takes a few
+/// seconds, so the natural pacing is enough — no explicit sleep).
+/// Memory is the resident-set sum of the second snapshot.
 Future<({AppleCpuPerfSample cpu, AppleMemoryPerfSample memory})>
 sampleIosDevicePerfMetrics(
   String udid, {
   required bool Function(String processName) processMatcher,
   required String matcherLabel,
 }) async {
-  final samples = await sampleIosDevicePerfSnapshot(udid);
-  final matched = samples.where((s) => processMatcher(s.processName)).toList();
-  if (matched.isEmpty) {
+  final firstSamples = await sampleIosDevicePerfSnapshot(udid);
+  final firstAt = DateTime.now();
+  final secondSamples = await sampleIosDevicePerfSnapshot(udid);
+  final secondAt = DateTime.now();
+  return computeIosDevicePerfDelta(
+    firstSamples: firstSamples,
+    secondSamples: secondSamples,
+    firstCapturedAt: firstAt,
+    secondCapturedAt: secondAt,
+    processMatcher: processMatcher,
+    matcherLabel: matcherLabel,
+  );
+}
+
+/// Pure aggregator: given two xctrace snapshots and their capture
+/// timestamps, compute the CPU% delta + resident-memory snapshot for
+/// processes matching [processMatcher]. Exposed for unit tests — the
+/// per-pid bookkeeping is the risky bit.
+({AppleCpuPerfSample cpu, AppleMemoryPerfSample memory})
+computeIosDevicePerfDelta({
+  required List<IosDeviceProcessSample> firstSamples,
+  required List<IosDeviceProcessSample> secondSamples,
+  required DateTime firstCapturedAt,
+  required DateTime secondCapturedAt,
+  required bool Function(String processName) processMatcher,
+  required String matcherLabel,
+}) {
+  final matchedSecond = secondSamples
+      .where((s) => processMatcher(s.processName))
+      .toList();
+  if (matchedSecond.isEmpty) {
     throw AppError(
       AppErrorCodes.commandFailed,
       'xctrace returned no running process matching "$matcherLabel"',
@@ -451,34 +482,52 @@ sampleIosDevicePerfMetrics(
         'hint':
             'Ensure the app is foregrounded on the device before sampling. '
             'Available processes (first 20): '
-            '${samples.map((s) => s.processName).take(20).toList()}',
+            '${secondSamples.map((s) => s.processName).take(20).toList()}',
       },
     );
   }
-  final measuredAt = DateTime.now().toIso8601String();
+  final elapsedMs = secondCapturedAt
+      .difference(firstCapturedAt)
+      .inMilliseconds;
+  if (elapsedMs <= 0) {
+    throw AppError(
+      AppErrorCodes.commandFailed,
+      'Invalid xctrace sample window for "$matcherLabel" (elapsed ${elapsedMs}ms)',
+    );
+  }
+  final priorByPid = <int, IosDeviceProcessSample>{
+    for (final s in firstSamples) s.pid: s,
+  };
   final processNames = <String>{
-    for (final s in matched) s.processName,
+    for (final s in matchedSecond) s.processName,
   }.toList();
-  // `cpu-total` is *lifetime* CPU time on core (ns), not a per-sample
-  // delta. One xctrace snapshot can't compute a meaningful CPU% — you'd
-  // need two samples a second apart and diff. Surface lifetime seconds
-  // instead and let the caller decide. Memory is a straight snapshot
-  // and IS meaningful.
-  double totalCpuSeconds = 0;
+  // Per-pid CPU delta in ns. Skip pids we don't have a baseline for —
+  // their `cpu-total` is lifetime, so without a prior reading the delta
+  // is meaningless.
+  double totalDeltaCpuNs = 0;
+  bool anyCpuMatched = false;
+  for (final s in matchedSecond) {
+    final prior = priorByPid[s.pid];
+    if (s.cpuTimeNs == null || prior?.cpuTimeNs == null) continue;
+    final delta = s.cpuTimeNs! - prior!.cpuTimeNs!;
+    if (delta > 0) totalDeltaCpuNs += delta;
+    anyCpuMatched = true;
+  }
+  // CPU% over wall window. Multi-core processes can exceed 100% — same
+  // semantics as `top` shows.
+  final cpuPercent = anyCpuMatched
+      ? (totalDeltaCpuNs / (elapsedMs * 1e6)) * 100
+      : 0.0;
   int totalResidentBytes = 0;
-  for (final s in matched) {
-    if (s.cpuTimeNs != null) {
-      totalCpuSeconds += s.cpuTimeNs! / 1e9;
-    }
+  for (final s in matchedSecond) {
     if (s.residentMemoryBytes != null) {
       totalResidentBytes += s.residentMemoryBytes!;
     }
   }
+  final measuredAt = secondCapturedAt.toIso8601String();
   return (
     cpu: AppleCpuPerfSample(
-      // usagePercent is overloaded here to carry lifetime CPU seconds.
-      // The CLI/metadata labels the unit so this doesn't leak.
-      usagePercent: (totalCpuSeconds * 10).round() / 10,
+      usagePercent: roundPercent(cpuPercent),
       measuredAt: measuredAt,
       method: iosDeviceCpuSampleMethod,
       matchedProcesses: processNames,

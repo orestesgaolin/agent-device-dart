@@ -13,8 +13,9 @@ import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 /// Phase 10 device perf: drives `agent-device perf` against a paired
-/// iPhone with Safari open and asserts xctrace returns lifetime CPU +
-/// resident memory for the MobileSafari process.
+/// iPhone with Safari open and asserts xctrace returns CPU% + resident
+/// memory for the MobileSafari process. CPU% is derived from a delta
+/// between two consecutive 1s xctrace captures.
 void main() {
   final gate = Platform.environment['AGENT_DEVICE_IOS_LIVE'];
   final deviceUdid = Platform.environment['AGENT_DEVICE_IOS_DEVICE_UDID'];
@@ -63,7 +64,7 @@ void main() {
   });
 
   test(
-    'perf on physical iPhone returns cpu.lifetime + memory.resident',
+    'perf on physical iPhone returns cpu (percent) + memory.resident',
     () async {
       final openR = await cli(['open', 'com.apple.mobilesafari', '--json']);
       expect(openR.exitCode, 0, reason: openR.stderr.toString());
@@ -80,10 +81,15 @@ void main() {
       final metrics = (data['metrics'] as List).cast<Map>();
       expect(metrics, hasLength(2));
       final byName = {for (final m in metrics) m['name']: m};
-      expect(byName.containsKey('cpu.lifetime'), isTrue);
+      expect(byName.containsKey('cpu'), isTrue);
       expect(byName.containsKey('memory.resident'), isTrue);
-      expect(byName['cpu.lifetime']!['unit'], 'seconds');
+      expect(byName['cpu']!['unit'], 'percent');
       expect(byName['memory.resident']!['unit'], 'kB');
+      expect(
+        (byName['cpu']!['value'] as num),
+        greaterThanOrEqualTo(0),
+        reason: 'CPU% should be a non-negative percentage.',
+      );
       expect(
         (byName['memory.resident']!['value'] as num),
         greaterThan(0),
@@ -91,7 +97,7 @@ void main() {
       );
       print(
         '[live] Safari device '
-        'cpu=${byName['cpu.lifetime']!['value']}s '
+        'cpu=${byName['cpu']!['value']}% '
         'rss=${byName['memory.resident']!['value']}kB',
       );
     },
