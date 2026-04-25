@@ -370,6 +370,14 @@ abstract class Backend {
     BackendInstallTarget target,
   ) async => unsupported('installApp');
 
+  /// Uninstall an app by bundle id / package name. Returns the
+  /// resolved app identity even when the app wasn't installed (no-op
+  /// success) so callers get consistent telemetry.
+  Future<BackendInstallResult> uninstallApp(
+    BackendCommandContext ctx,
+    String app,
+  ) async => unsupported('uninstallApp');
+
   /// Reinstall an app.
   Future<BackendInstallResult> reinstallApp(
     BackendCommandContext ctx,

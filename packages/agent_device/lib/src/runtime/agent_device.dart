@@ -595,6 +595,10 @@ class AgentDevice {
     );
   }
 
+  Future<BackendInstallResult> uninstallApp({required String app}) async {
+    return backend.uninstallApp(await _ctx(), app);
+  }
+
   Future<BackendInstallResult> reinstallApp({
     required String path,
     required String app,

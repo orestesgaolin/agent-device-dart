@@ -93,6 +93,7 @@ another both land on the same device.
 | `record start` / `record stop`    | ✅ (screenrecord + pull) | ✅ (XCUITest runner + sandbox pull) | ✅ (runner + `devicectl copy from` — needs device trust + Developer Mode) |
 | `perf [--metric cpu\|memory]`      | ✅ (dumpsys)           | ✅ (simctl spawn ps)  | ✅ (xctrace 2× 1s + delta — true CPU%) |
 | `network <logPath>` (HTTP from logs) | ✅ (cross-line Android enrichment) | ✅       | ✅                     |
+| `install` / `uninstall` / `reinstall` | ✅ (apk + aab)        | ✅ (.app + .ipa)     | ✅ (.app + .ipa via devicectl — needs signed bundle) |
 | `replay <script.ad>` / `test <glob>` | ✅                  | ✅                    | ✅                     |
 | Self-healing replay (`--replay-update`) | ✅               | ✅                    | ✅                     |
 | Per-step artifacts + auto log-dump on failure | ✅           | ✅                    | ❌ (needs logs)         |
@@ -210,12 +211,13 @@ Key design choices vs. the TS source:
 - macOS (`macos-helper` Swift binary + AX API bridge)
 - Linux (`atspi-dump.py`)
 
-**Phase 10 follow-ups** *(observability core + streaming is shipped)*
-- `.ipa` install / uninstall / reinstall for physical iOS (needs the
-  install-artifact archive-prep chain — separate effort)
+**Phase 10 follow-ups** *(observability core + streaming + install is shipped)*
 - Android pinch multi-touch (runner gap, not a Dart gap)
 - `record --hide-touches` overlay (TS does it as an ffmpeg post-pass
   driven by the runner's gesture-event log — sizeable separate port)
+- iOS install from URL sources / nested archives (TS supports trusted
+  GitHub Actions + EAS artifact URLs and `.zip`/`.tar.gz` containers
+  around the `.app`/`.ipa`; current Dart port handles local paths only)
 
 **Phase 11 — React Native / metro integration** *(not started)*
 - `metro.ts` / `metro-companion.ts` / `remote-config*.ts` / `remote-connection-state.ts` port (~1500 LOC of HTTP client + runtime-hint injection). Lets `.ad` scripts bootstrap against a running metro dev server so the launched app loads your current un-bundled JS.

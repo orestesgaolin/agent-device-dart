@@ -787,6 +787,22 @@ class AndroidBackend extends Backend {
   }
 
   @override
+  Future<BackendInstallResult> uninstallApp(
+    BackendCommandContext ctx,
+    String app,
+  ) async {
+    final pkg = app.trim();
+    if (pkg.isEmpty) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'Android uninstallApp requires a package name',
+      );
+    }
+    final r = await uninstallAndroidApp(_serial(ctx), pkg);
+    return BackendInstallResult(appId: r.package, packageName: r.package);
+  }
+
+  @override
   Future<BackendInstallResult> reinstallApp(
     BackendCommandContext ctx,
     BackendInstallTarget target,

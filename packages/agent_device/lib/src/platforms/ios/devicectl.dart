@@ -1,10 +1,8 @@
 // Port of agent-device/src/platforms/ios/devicectl.ts (subset).
 //
 // Physical iOS devices are driven via `xcrun devicectl`. This module
-// covers the shape we need for the Phase 8C polish: list physical
-// devices, list apps on a physical device, launch/terminate processes.
-// App install/uninstall/reinstall of .ipa files is deferred — that chain
-// depends on the install-artifact port which is a larger piece of work.
+// covers the shape we need: list physical devices, list apps on a
+// physical device, launch/terminate processes, install/uninstall apps.
 library;
 
 import 'dart:convert';
@@ -149,6 +147,67 @@ Future<void> terminateIosDeviceProcess(String udid, String bundleId) async {
     action: 'terminate iOS app $bundleId',
     deviceId: udid,
   );
+}
+
+/// Install [installablePath] (a `.app` bundle directory — `.ipa`
+/// archives must be unpacked first; see
+/// `prepareIosInstallArtifact`) on a physical iOS device.
+Future<void> installIosDeviceApp(String udid, String installablePath) async {
+  await runIosDevicectl(
+    ['device', 'install', 'app', '--device', udid, installablePath],
+    action: 'install iOS app',
+    deviceId: udid,
+    timeoutMs: 180000,
+  );
+}
+
+/// Uninstall [bundleId] from a physical iOS device. Returns true if
+/// the app was actually uninstalled, false if the device reported it
+/// wasn't installed in the first place (matches simctl's tolerant
+/// shape so callers don't have to special-case missing apps).
+Future<bool> uninstallIosDeviceApp(String udid, String bundleId) async {
+  final args = [
+    'devicectl',
+    'device',
+    'uninstall',
+    'app',
+    '--device',
+    udid,
+    bundleId,
+  ];
+  final r = await runCmd(
+    'xcrun',
+    args,
+    const ExecOptions(allowFailure: true, timeoutMs: 60000),
+  );
+  if (r.exitCode == 0) return true;
+  final combined = '${r.stdout}\n${r.stderr}'.toLowerCase();
+  if (_isMissingAppErrorOutput(combined)) return false;
+  throw AppError(
+    AppErrorCodes.commandFailed,
+    'Failed to uninstall iOS app $bundleId.',
+    details: {
+      'cmd': 'xcrun',
+      'args': args,
+      'exitCode': r.exitCode,
+      'stdout': r.stdout,
+      'stderr': r.stderr,
+      'deviceId': udid,
+      'hint':
+          _resolveDevicectlHint(r.stdout, r.stderr) ?? _devicectlDefaultHint,
+    },
+  );
+}
+
+/// True for the messages devicectl/simctl emit when an app isn't
+/// installed — lets uninstall callers treat "not installed" as a
+/// no-op success.
+bool _isMissingAppErrorOutput(String lowercased) {
+  return lowercased.contains('not installed') ||
+      lowercased.contains('could not be found') ||
+      lowercased.contains('no such application') ||
+      lowercased.contains('the application is missing') ||
+      lowercased.contains('matching application not found');
 }
 
 /// Enumerate physical iOS/tvOS devices visible to `devicectl`. Returns an

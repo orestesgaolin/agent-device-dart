@@ -20,9 +20,11 @@ import 'package:path/path.dart' as p;
 import 'app_lifecycle.dart';
 import 'devicectl.dart';
 import 'devices.dart';
+import 'install_artifact.dart';
 import 'perf.dart';
 import 'runner_client.dart';
 import 'screenshot.dart';
+import 'simctl.dart';
 
 /// Candidate container bundle ids used by `devicectl device copy from
 /// --domain-type appDataContainer` when pulling a recording off a
@@ -1053,6 +1055,134 @@ class IosBackend extends Backend {
       bundleId: fg.bundleId,
       state: fg.bundleId == null ? 'unknown' : 'foreground',
     );
+  }
+
+  // =========================================================================
+  // Install / uninstall / reinstall
+  // =========================================================================
+
+  /// Install a `.app` bundle or `.ipa` archive. Simulator paths shell
+  /// out to `xcrun simctl install <udid> <path>`; physical-device paths
+  /// go through `devicectl device install app`. `.ipa` archives are
+  /// unzipped into a tmpdir first and the resolved `.app` is installed
+  /// from there. Bundle id + display name are extracted from the
+  /// bundle's `Info.plist` and surfaced on the result so the caller
+  /// can `open` it without a separate lookup.
+  @override
+  Future<BackendInstallResult> installApp(
+    BackendCommandContext ctx,
+    BackendInstallTarget target,
+  ) async {
+    final source = target.source;
+    if (source is! BackendInstallSourcePath) {
+      unsupported('iOS installApp requires a path source');
+    }
+    final prepared = await prepareIosInstallArtifact(
+      source.path,
+      options: PrepareIosInstallArtifactOptions(
+        appIdentifierHint: target.app,
+      ),
+    );
+    try {
+      final udid = _udid(ctx);
+      final kind = await _resolveKind(udid);
+      if (kind == 'device') {
+        await installIosDeviceApp(udid, prepared.installablePath);
+      } else {
+        final r = await runCmd('xcrun', buildSimctlArgs([
+          'install',
+          udid,
+          prepared.installablePath,
+        ]), const ExecOptions(allowFailure: true, timeoutMs: 180000));
+        if (r.exitCode != 0) {
+          throw AppError(
+            AppErrorCodes.commandFailed,
+            'simctl install failed for ${prepared.installablePath}',
+            details: {
+              'stdout': r.stdout,
+              'stderr': r.stderr,
+              'exitCode': r.exitCode,
+            },
+          );
+        }
+      }
+      return BackendInstallResult(
+        appId: prepared.bundleId,
+        bundleId: prepared.bundleId,
+        appName: prepared.appName,
+        launchTarget: prepared.bundleId,
+        installablePath: prepared.installablePath,
+        archivePath: prepared.archivePath,
+      );
+    } finally {
+      await prepared.cleanup();
+    }
+  }
+
+  /// Uninstall by bundle id. Returns the resolved bundle id even when
+  /// the app wasn't installed — both simctl and devicectl are tolerant
+  /// of "not installed" so the caller gets a no-op success rather than
+  /// a generic failure.
+  @override
+  Future<BackendInstallResult> uninstallApp(
+    BackendCommandContext ctx,
+    String app,
+  ) async {
+    final bundleId = app.trim();
+    if (bundleId.isEmpty) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'iOS uninstallApp requires a bundle id',
+      );
+    }
+    final udid = _udid(ctx);
+    final kind = await _resolveKind(udid);
+    if (kind == 'device') {
+      await uninstallIosDeviceApp(udid, bundleId);
+    } else {
+      final r = await runCmd('xcrun', buildSimctlArgs([
+        'uninstall',
+        udid,
+        bundleId,
+      ]), const ExecOptions(allowFailure: true, timeoutMs: 60000));
+      if (r.exitCode != 0) {
+        final combined = '${r.stdout}\n${r.stderr}'.toLowerCase();
+        final missing = combined.contains('no such') ||
+            combined.contains('not installed') ||
+            combined.contains('found no app');
+        if (!missing) {
+          throw AppError(
+            AppErrorCodes.commandFailed,
+            'simctl uninstall failed for $bundleId',
+            details: {
+              'stdout': r.stdout,
+              'stderr': r.stderr,
+              'exitCode': r.exitCode,
+            },
+          );
+        }
+      }
+    }
+    return BackendInstallResult(
+      appId: bundleId,
+      bundleId: bundleId,
+      launchTarget: bundleId,
+    );
+  }
+
+  /// Uninstall + reinstall in one shot. The uninstall is best-effort
+  /// — if the app isn't installed we still proceed with the install
+  /// so the caller can use this as an "ensure installed" primitive.
+  @override
+  Future<BackendInstallResult> reinstallApp(
+    BackendCommandContext ctx,
+    BackendInstallTarget target,
+  ) async {
+    final hint = target.app?.trim();
+    if (hint != null && hint.isNotEmpty) {
+      await uninstallApp(ctx, hint);
+    }
+    return installApp(ctx, target);
   }
 
   @override

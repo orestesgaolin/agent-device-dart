@@ -595,7 +595,7 @@ Future<void> closeAndroidApp(String deviceId, String app) async {
 }
 
 /// Uninstall an app (package) from the device.
-Future<({String package})> _uninstallAndroidApp(
+Future<({String package})> uninstallAndroidApp(
   String deviceId,
   String app,
 ) async {
@@ -739,7 +739,7 @@ Future<({String package})> reinstallAndroidApp(
 ) async {
   await waitForAndroidBoot(deviceId);
 
-  final (:package) = await _uninstallAndroidApp(deviceId, app);
+  final (:package) = await uninstallAndroidApp(deviceId, app);
   final prepared = await prepareAndroidInstallArtifact(
     appPath,
     resolveIdentity: false,
