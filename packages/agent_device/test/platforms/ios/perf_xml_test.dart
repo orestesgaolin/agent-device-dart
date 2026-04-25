@@ -106,7 +106,10 @@ void main() {
       );
       expect(r.cpu.usagePercent, closeTo(75.0, 0.01));
       // Memory uses the second snapshot — 110+60 = 170 MB ≈ 166015 kB.
-      expect(r.memory.residentMemoryKb, equals(((110_000_000 + 60_000_000) / 1024).round()));
+      expect(
+        r.memory.residentMemoryKb,
+        equals(((110_000_000 + 60_000_000) / 1024).round()),
+      );
       expect(r.cpu.matchedProcesses, containsAll(['demo (100)', 'demo (200)']));
     });
 

@@ -486,9 +486,7 @@ computeIosDevicePerfDelta({
       },
     );
   }
-  final elapsedMs = secondCapturedAt
-      .difference(firstCapturedAt)
-      .inMilliseconds;
+  final elapsedMs = secondCapturedAt.difference(firstCapturedAt).inMilliseconds;
   if (elapsedMs <= 0) {
     throw AppError(
       AppErrorCodes.commandFailed,
