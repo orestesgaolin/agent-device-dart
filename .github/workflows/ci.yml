@@ -2,18 +2,25 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
 
 jobs:
   test:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dart-lang/setup-dart@v1
+      - uses: actions/checkout@v6
+
+      - uses: subosito/flutter-action@v2
         with:
-          sdk: '3.11'
+          channel: stable
+
       - run: dart pub get
+
+      - name: Get Flutter fixture dependencies
+        run: flutter pub get
+        working-directory: test_apps/agent_device_fixture_app
+
       - run: dart format --output=none --set-exit-if-changed .
       - run: dart analyze
       - run: dart test packages/agent_device
