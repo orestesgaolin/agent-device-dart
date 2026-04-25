@@ -372,10 +372,17 @@ class BackendScreenshotOptions {
   final bool? overlayRefs;
   final String? surface;
 
+  /// When set, the captured PNG is downscaled to fit within
+  /// [maxSize] pixels on its longest edge before returning. Useful
+  /// for keeping artifact bundles small. Applied as a post-process
+  /// step after the backend writes the file.
+  final int? maxSize;
+
   const BackendScreenshotOptions({
     this.fullscreen,
     this.overlayRefs,
     this.surface,
+    this.maxSize,
   });
 }
 

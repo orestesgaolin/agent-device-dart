@@ -848,7 +848,11 @@ Future<List<String>> _dispatch({
                     'ad-step-${index + 1}-${DateTime.now().microsecondsSinceEpoch}.png',
                   )
                 : p.join(artifactDir, 'step-${index + 1}.png'));
-      await device.screenshot(outPath);
+      await device.screenshot(
+        outPath,
+        fullscreen: flags['screenshotFullscreen'] == true ? true : null,
+        maxSize: (flags['screenshotMaxSize'] as num?)?.toInt(),
+      );
       return [outPath];
 
     default:

@@ -5,11 +5,14 @@
 // surface other Dart packages consume.
 library;
 
+import 'dart:io';
+
 import 'package:agent_device/src/backend/backend.dart';
 import 'package:agent_device/src/platforms/platform_selector.dart';
 import 'package:agent_device/src/selectors/selectors.dart';
 import 'package:agent_device/src/snapshot/snapshot.dart';
 import 'package:agent_device/src/utils/errors.dart';
+import 'package:agent_device/src/utils/png.dart' as png;
 
 import 'contract.dart';
 import 'interaction_target.dart';
@@ -192,19 +195,38 @@ class AgentDevice {
 
   /// Capture a screenshot to [outPath]. Returns null if the backend
   /// declines (not all backends produce a file).
+  ///
+  /// When [maxSize] is set, the captured PNG is box-filter downscaled
+  /// in place after the backend writes it so the longest edge fits
+  /// within [maxSize] pixels. Skipped when the image already fits.
   Future<BackendScreenshotResult?> screenshot(
     String outPath, {
     bool? overlayRefs,
     bool? fullscreen,
-  }) {
-    return backend.captureScreenshot(
+    int? maxSize,
+  }) async {
+    if (maxSize != null && maxSize < 1) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'Screenshot max size must be a positive integer',
+      );
+    }
+    final result = await backend.captureScreenshot(
       BackendCommandContext(session: sessionName, deviceSerial: device.id),
       outPath,
       BackendScreenshotOptions(
         overlayRefs: overlayRefs,
         fullscreen: fullscreen,
+        maxSize: maxSize,
       ),
     );
+    if (maxSize != null) {
+      final path = result?.path ?? outPath;
+      if (await File(path).exists()) {
+        await png.resizePngFileToMaxSize(path, maxSize);
+      }
+    }
+    return result;
   }
 
   // =========================================================================
