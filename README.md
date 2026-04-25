@@ -36,6 +36,11 @@ xcodebuild build-for-testing \
 xcrun simctl boot "iPhone 17"
 dart run packages/agent_device/bin/agent_device.dart \
   devices --platform ios --json
+
+# Optional: shell completions
+eval "$(./dist/agent-device completion bash)"      # bash
+eval "$(./dist/agent-device completion zsh)"       # zsh
+./dist/agent-device completion fish | source       # fish
 ```
 
 ### Physical iOS device prerequisites
@@ -160,14 +165,14 @@ default so partial support is honest.
 ## Architecture
 
 ```
-bin/agent_device.dart                 CLI entry point
+bin/agent_device.dart                CLI entry point (dispatches to cli/run_cli.dart)
 │
 ├── lib/src/cli/                     args-backed commands
-│   ├── commands/*.dart              devices, snapshot, tap, replay, record, logs, network, …
-│   └── run_cli.dart                 CommandRunner wiring
+│   ├── commands/*.dart              one file per top-level command
+│   └── run_cli.dart                 CommandRunner wiring + buildCliRunner()
 │
-├── lib/src/runtime/
-│   ├── agent_device.dart            typed façade (library API)
+├── lib/src/runtime/                 typed façade (library API) + session store
+│   ├── agent_device.dart            AgentDevice.open(...) and per-action methods
 │   ├── file_session_store.dart      ~/.agent-device/sessions/<name>.json
 │   └── paths.dart                   state-dir resolution
 │
@@ -177,35 +182,44 @@ bin/agent_device.dart                 CLI entry point
 │   └── heal.dart                    selector re-resolution
 │
 ├── lib/src/selectors/               @ref + DSL (`id=foo`, `role=Button label="OK"`)
-│   ├── parse.dart / resolve.dart / build.dart / match.dart / is_predicates.dart
-│
 ├── lib/src/snapshot/                accessibility-tree types + ref attach
+├── lib/src/diagnostics/             log_stream_record + network_log (HTTP extractor)
+├── lib/src/backend/                 abstract Backend + options / results / capabilities
 │
-├── lib/src/diagnostics/
-│   └── network_log.dart             HTTP extractor from app-log dumps
+├── lib/src/platforms/android/       adb + screenrecord + logcat + snapshot/input
+│                                    + apk/aab install_artifact
 │
-├── lib/src/platforms/android/       adb + screenrecord + logcat + snapshot/input wiring
-│
-├── lib/src/platforms/ios/
-│   ├── runner_client.dart           XCUITest bridge (HTTP POST /command)
-│   ├── ios_backend.dart             Backend subclass (simctl + runner + devicectl)
-│   ├── devicectl.dart               physical-device listing + launch
-│   ├── ensure_simulator.dart        find-or-create + boot
-│   └── …
-│
-└── lib/src/backend/                 abstract Backend + options/results
+└── lib/src/platforms/ios/
+    ├── runner_client.dart           XCUITest bridge (HTTP POST /command, BSD socket
+    │                                on physical devices over CoreDevice tunnel)
+    ├── ios_backend.dart             Backend subclass (simctl + runner + devicectl)
+    ├── devicectl.dart               physical-device list / launch / install / uninstall
+    ├── simctl.dart                  buildSimctlArgs helper
+    ├── ensure_simulator.dart        find-or-create + boot
+    ├── install_artifact.dart        .app + .ipa (single-app or hint-resolved multi-app)
+    ├── app_lifecycle.dart, devices.dart, perf.dart, screenshot.dart
 ```
+
+The XCUITest runner itself lives at `ios-runner/AgentDeviceRunner/` —
+a small Swift project Dart shells out to via `xcodebuild
+test-without-building`. See `RunnerBSDSocketServer.swift` /
+`RunnerTests+CommandExecution.swift` for the on-device side.
 
 Key design choices vs. the TS source:
 
 - No long-lived daemon. TS spawns one for state sharing; Dart instead
   persists sessions to disk (`~/.agent-device/sessions/`), plus the
-  iOS XCUITest runner (`~/.agent-device/ios-runners/<udid>.json`) and
-  Android screenrecord PID (`~/.agent-device/android-recorders/<serial>.json`)
+  iOS XCUITest runner (`~/.agent-device/ios-runners/<udid>.json`),
+  Android screenrecord PID (`~/.agent-device/android-recorders/<serial>.json`),
+  and live log streams (`~/.agent-device/log-streams/<deviceId>.json`)
   so CLI invocations and the user's shell both converge on the same
   underlying tooling.
 - No dynamic `bindCommands`. `AgentDevice` exposes concrete typed
-  methods; each `Backend` subclass overrides what it supports.
+  methods; each `Backend` subclass overrides what it supports — the
+  base class's `unsupported(...)` makes partial coverage honest.
+- iOS physical devices route over the CoreDevice IPv6 tunnel
+  (`xcrun devicectl device info details → tunnelIPAddress`), not the
+  legacy usbmuxd/iproxy path Apple deprecated on iOS 17+.
 
 ## Still missing / roadmap
 
@@ -238,14 +252,26 @@ Key design choices vs. the TS source:
 
 ```bash
 # Unit tests (fast, no device required):
-dart test packages/agent_device/test --exclude-tags='android-live,ios-live,cli-live'
+dart test packages/agent_device/test \
+  --exclude-tags='android-live,ios-live,ios-device-live,android-emulator,fixture-live'
 
-# iOS live suites (need a booted simulator + built runner):
+# iOS simulator live suite (needs a booted simulator + built runner):
 AGENT_DEVICE_IOS_LIVE=1 dart test --tags=ios-live
 
-# Android live suites (need a booted emulator or connected device):
+# iOS physical device suite (also needs AGENT_DEVICE_IOS_DEVICE_UDID=<udid>):
+AGENT_DEVICE_IOS_LIVE=1 AGENT_DEVICE_IOS_DEVICE_UDID=<udid> \
+  dart test --tags=ios-device-live
+
+# Android live suite (booted emulator or connected device):
 AGENT_DEVICE_ANDROID_LIVE=1 dart test --tags=android-live
+
+# All checks (analyze + unit tests):
+make check
 ```
+
+Test tags in use: `android-live`, `android-emulator`, `ios-live`,
+`ios-device-live`, `fixture-live`. Tests without a tag never need a
+device.
 
 ## License
 
