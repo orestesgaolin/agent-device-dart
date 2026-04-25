@@ -14,6 +14,8 @@ Ships as both:
 ```bash
 # 1. Bootstrap the workspace.
 make get
+# Or build a standalone native binary:
+make compile     # → dist/agent-device  (+ dist/ad symlink)
 
 # 2. (iOS only, one-time per target) Build the XCUITest runner. Needs Xcode.
 #    Simulator:
@@ -225,11 +227,12 @@ Key design choices vs. the TS source:
   into a Dart-specific design (VM Service / `flutter attach` /
   hot-reload) rather than a port.
 
-**Phase 12 — polish & release**
-- `dart compile exe` standalone binaries per OS
-- Shell completions (`--completion bash|zsh|fish`)
+**Phase 12 — polish & release** *(in progress)*
+- ✅ `dart compile exe` standalone binary (`make compile` → `dist/agent-device`)
+- ✅ Shell completions: `agent-device completion bash|zsh|fish`
 - Byte-for-byte CLI output diff against the Node CLI on a `.ad` corpus
-- pub.dev publish (internal dry-run first)
+- pub.dev publish — dry-run is one `LICENSE` file from passing
+  (waiting on a license decision)
 
 ## Testing
 

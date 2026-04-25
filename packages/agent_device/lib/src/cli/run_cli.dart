@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 
+import 'commands/completion_cmd.dart';
 import 'commands/devices_cmd.dart';
 import 'commands/ensure_simulator_cmd.dart';
 import 'commands/install_cmd.dart';
@@ -21,11 +22,13 @@ import 'commands/simple_action_cmds.dart';
 import 'commands/snapshot_cmd.dart';
 import 'output.dart';
 
-/// Run the CLI with [argv]. Returns the exit code (0 = ok, 1 = error,
-/// 64 = usage error — matching sysexits.h semantics).
-Future<int> runCli(List<String> argv) async {
+/// Build the [CommandRunner] used by both the live CLI and the
+/// `completion` subcommand (which introspects `runner.commands` to
+/// emit a static script). Adding new top-level subcommands here
+/// auto-extends shell completion.
+CommandRunner<int> buildCliRunner({String executableName = 'agent-device'}) {
   final runner = CommandRunner<int>(
-    'agent-device',
+    executableName,
     'Agent-driven CLI for mobile UI automation, network inspection, '
         'and performance diagnostics.',
     usageLineLength: stdout.hasTerminal ? stdout.terminalColumns : 80,
@@ -95,7 +98,21 @@ Future<int> runCli(List<String> argv) async {
     ..addCommand(RunnerCommand())
     ..addCommand(ReplayCommand())
     ..addCommand(TestCommand())
-    ..addCommand(SessionCommand());
+    ..addCommand(SessionCommand())
+    ..addCommand(CompletionCommand());
+  return runner;
+}
+
+/// Run the CLI with [argv]. Returns the exit code (0 = ok, 1 = error,
+/// 64 = usage error — matching sysexits.h semantics).
+///
+/// [executableName] customises the program name in `--help` output —
+/// pass `'ad'` when invoked through the short alias, `'agent-device'`
+/// otherwise. The default falls back to detecting the invoked binary
+/// from `Platform.executable`.
+Future<int> runCli(List<String> argv, {String? executableName}) async {
+  final name = executableName ?? _detectExecutableName();
+  final runner = buildCliRunner(executableName: name);
 
   // Decide JSON mode for top-level error reporting by peeking at argv —
   // the CommandRunner hasn't parsed yet when an exception escapes.
@@ -121,4 +138,20 @@ Future<int> runCli(List<String> argv) async {
     printError(err, asJson: asJson, showDetails: verbose);
     return 1;
   }
+}
+
+/// Best-effort guess at the program name the user typed. When invoked
+/// through a `dart compile exe` binary `Platform.executable` ends in
+/// `agent-device` or `ad`; when `dart run` driving the `bin/` script
+/// it ends in `dart`, in which case we fall back to the canonical
+/// long name.
+String _detectExecutableName() {
+  final exe = _basename(Platform.executable);
+  if (exe == 'agent-device' || exe == 'ad') return exe;
+  return 'agent-device';
+}
+
+String _basename(String path) {
+  final i = path.lastIndexOf(Platform.pathSeparator);
+  return i < 0 ? path : path.substring(i + 1);
 }

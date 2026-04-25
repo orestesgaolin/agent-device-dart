@@ -3,6 +3,7 @@
 .packages
 build/
 build-device/
+dist/
 pubspec.lock
 doc/api/
 
