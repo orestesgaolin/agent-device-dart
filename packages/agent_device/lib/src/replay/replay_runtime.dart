@@ -28,8 +28,12 @@ import 'package:agent_device/src/utils/errors.dart';
 import 'package:path/path.dart' as p;
 
 import 'heal.dart';
+import 'replay_vars.dart';
 import 'script.dart'
-    show parseReplayScript, readReplayScriptMetadata, serializeReplayScript;
+    show
+        parseReplayScriptDetailed,
+        readReplayScriptMetadata,
+        serializeReplayScript;
 import 'script.dart' as script show ReplayScriptMetadata;
 import 'session_action.dart';
 
@@ -127,6 +131,11 @@ Future<ReplayRunResult> runReplayScript({
   String? artifactDir,
   bool replayUpdate = false,
   void Function(ReplayStepResult step)? onStep,
+  List<String> cliEnv = const [],
+  Map<String, String>? shellEnv,
+  String? sessionName,
+  String? platform,
+  String? deviceLabel,
 }) async {
   final sw = Stopwatch()..start();
   final resolved = File(scriptPath).absolute.path;
@@ -141,7 +150,50 @@ Future<ReplayRunResult> runReplayScript({
   }
 
   final metadata = readReplayScriptMetadata(text);
-  final actions = parseReplayScript(text);
+  final parsed = parseReplayScriptDetailed(text);
+  final actions = parsed.actions;
+  final actionLines = parsed.actionLines;
+
+  // Guard `replay -u` against rewriting scripts whose env directives
+  // or `${VAR}` substitutions would be silently dropped — the writer
+  // doesn't yet round-trip those, so let the user fix them by hand
+  // first rather than corrupt their script.
+  if (replayUpdate &&
+      metadata.env != null &&
+      metadata.env!.isNotEmpty) {
+    throw AppError(
+      AppErrorCodes.invalidArgs,
+      'replay -u does not yet preserve env directives. Temporarily remove '
+      'the env lines, run replay -u, then restore them.',
+    );
+  }
+  if (replayUpdate && actionsContainInterpolation(actions)) {
+    throw AppError(
+      AppErrorCodes.invalidArgs,
+      r'replay -u does not yet preserve ${VAR} substitutions. Resolve or '
+      'inline the variables before running with -u.',
+    );
+  }
+
+  // Build the variable scope: trusted built-ins + file env + AD_VAR_*
+  // shell env + CLI -e overrides. Precedence is high → low in source
+  // order, so later layers overwrite earlier ones.
+  final builtins = _buildReplayBuiltins(
+    sessionName: sessionName,
+    platform: platform ?? metadata.platform,
+    deviceLabel: deviceLabel,
+    artifactsDir: artifactDir,
+    scriptPath: resolved,
+  );
+  final scope = buildReplayVarScope(
+    ReplayVarSources(
+      builtins: builtins,
+      fileEnv: metadata.env,
+      shellEnv: collectReplayShellEnv(shellEnv ?? Platform.environment),
+      cliEnv: parseReplayCliEnvEntries(cliEnv),
+    ),
+  );
+
   final steps = <ReplayStepResult>[];
   var ok = true;
   final effectiveArtifactDir = artifactDir;
@@ -153,6 +205,14 @@ Future<ReplayRunResult> runReplayScript({
   for (var i = 0; i < actions.length; i++) {
     var action = actions[i];
     if (action.command == 'replay') continue; // nested replay not supported
+    // Resolve `${VAR}` references against the scope before dispatch so
+    // each step sees the fully substituted positionals/flags/runtime.
+    action = resolveReplayAction(
+      action,
+      scope,
+      file: resolved,
+      line: actionLines[i],
+    );
     final stepSw = Stopwatch()..start();
     try {
       final artifacts = await _dispatch(
@@ -273,6 +333,34 @@ Future<ReplayRunResult> runReplayScript({
 /// First line of [text] if it's a `context ...` header, otherwise null.
 /// Preserves the original context when we rewrite the script so users
 /// don't lose their platform / retries / timeout metadata on heal.
+/// Trusted built-ins exposed under the AD_* namespace. Values come
+/// from the runtime caller (CLI flags + session lookup) — none are
+/// derived from the script contents. Match the TS field set.
+Map<String, String> _buildReplayBuiltins({
+  String? sessionName,
+  String? platform,
+  String? deviceLabel,
+  String? artifactsDir,
+  required String scriptPath,
+}) {
+  final cwd = Directory.current.path;
+  final relative = p.isWithin(cwd, scriptPath)
+      ? p.relative(scriptPath, from: cwd)
+      : scriptPath;
+  final builtins = <String, String>{
+    if (sessionName != null && sessionName.isNotEmpty) 'AD_SESSION': sessionName,
+    'AD_FILENAME': relative,
+  };
+  if (platform != null && platform.isNotEmpty) builtins['AD_PLATFORM'] = platform;
+  if (deviceLabel != null && deviceLabel.isNotEmpty) {
+    builtins['AD_DEVICE'] = deviceLabel;
+  }
+  if (artifactsDir != null && artifactsDir.isNotEmpty) {
+    builtins['AD_ARTIFACTS'] = artifactsDir;
+  }
+  return builtins;
+}
+
 String? _extractContextLine(String text) {
   final firstLineEnd = text.indexOf('\n');
   final first = firstLineEnd == -1 ? text : text.substring(0, firstLineEnd);

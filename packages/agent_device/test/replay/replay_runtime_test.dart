@@ -75,6 +75,89 @@ void main() {
       expect(result.steps.last.artifactPaths, contains(outPath));
     });
 
+    test(r'${VAR} substitution from CLI -e + file env', () async {
+      final backend = _RecordingBackend();
+      final device = await openDevice(backend);
+      final scriptFile = File('${tmp.path}/parametrised.ad');
+      // file env sets APP=dev / REGION=eu; CLI -e overrides APP→prod.
+      // The combined `${REGION}-${APP}` lands on type's positional.
+      await scriptFile.writeAsString(
+        'env APP=dev\n'
+        'env REGION=eu\n'
+        r'open ${APP}' '\n'
+        r'type ${REGION}-${APP}' '\n',
+      );
+      final result = await runReplayScript(
+        scriptPath: scriptFile.path,
+        device: device,
+        cliEnv: const ['APP=prod'],
+        shellEnv: const {},
+      );
+      expect(result.ok, isTrue, reason: result.steps.toString());
+      expect(backend.calls.first.name, 'openApp');
+      final openTarget =
+          backend.calls.first.args['target'] as BackendOpenTarget;
+      expect(openTarget.app, 'prod');
+      expect(backend.calls[1].name, 'typeText');
+      expect(backend.calls[1].args['text'], 'eu-prod');
+    });
+
+    test(r'unresolved ${VAR} fails with file:line', () async {
+      final backend = _RecordingBackend();
+      final device = await openDevice(backend);
+      final scriptFile = File('${tmp.path}/missing.ad');
+      await scriptFile.writeAsString(r'open ${MISSING}' '\n');
+      try {
+        await runReplayScript(
+          scriptPath: scriptFile.path,
+          device: device,
+          shellEnv: const {},
+        );
+        fail('expected throw');
+      } catch (e) {
+        expect(
+          e.toString(),
+          contains(r'Unresolved variable ${MISSING}'),
+        );
+        expect(e.toString(), contains('missing.ad:1'));
+      }
+    });
+
+    test('replay -u rejects scripts with env directives', () async {
+      final backend = _RecordingBackend();
+      final device = await openDevice(backend);
+      final scriptFile = File('${tmp.path}/with-env.ad');
+      await scriptFile.writeAsString('env APP=dev\nhome\n');
+      try {
+        await runReplayScript(
+          scriptPath: scriptFile.path,
+          device: device,
+          replayUpdate: true,
+          shellEnv: const {},
+        );
+        fail('expected throw');
+      } catch (e) {
+        expect(e.toString(), contains('env directives'));
+      }
+    });
+
+    test('AD_VAR_* shell env entries are imported with prefix stripped',
+        () async {
+      final backend = _RecordingBackend();
+      final device = await openDevice(backend);
+      final scriptFile = File('${tmp.path}/shell-env.ad');
+      await scriptFile.writeAsString(r'open ${APP}' '\n');
+      final result = await runReplayScript(
+        scriptPath: scriptFile.path,
+        device: device,
+        shellEnv: const {'AD_VAR_APP': 'shellv'},
+      );
+      expect(result.ok, isTrue, reason: result.steps.toString());
+      final shellTarget =
+          backend.calls.first.args['target'] as BackendOpenTarget;
+      expect(shellTarget.app, 'shellv');
+    });
+
     test('record start --fps / --quality forward through replay', () async {
       final backend = _RecordingBackend();
       final device = await openDevice(backend);

@@ -136,6 +136,23 @@ fresh snapshot is taken, the selector is re-resolved against the
 current tree, the step retried, and the script file rewritten with the
 healed selector.
 
+#### Parameters
+
+`.ad` scripts support `${VAR}` interpolation in positional args, flag
+values, and runtime hints. Sources, in **decreasing** precedence:
+
+1. `agent-device replay -e KEY=VALUE` (or `--env KEY=VALUE`, repeatable)
+2. `AD_VAR_*` shell env (e.g. `AD_VAR_APP=prod` exposes `${APP}`)
+3. File-local `env KEY=VALUE` directives at the top of the `.ad` file
+4. Built-ins: `${AD_PLATFORM}`, `${AD_SESSION}`, `${AD_FILENAME}`,
+   `${AD_DEVICE}`, `${AD_ARTIFACTS}`
+
+Use `${VAR:-default}` for a fallback and `\${...}` to escape. Unresolved
+references fail loudly with `file:line`. The `AD_*` namespace is
+reserved — only built-ins may use it. `replay --replay-update` cannot
+yet round-trip env directives or interpolation tokens, so it refuses
+those scripts.
+
 ## Library usage
 
 ```dart

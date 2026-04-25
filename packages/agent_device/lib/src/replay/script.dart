@@ -2,8 +2,11 @@
 /// Main replay script parser and serializer.
 library;
 
+import 'dart:convert';
+
 import '../utils/errors.dart';
 import 'open_script.dart';
+import 'replay_vars.dart' show replayVarKeyRe;
 import 'script_utils.dart';
 import 'session_action.dart';
 
@@ -18,43 +21,96 @@ class ReplayScriptMetadata {
   final int? timeoutMs;
   final int? retries;
 
-  const ReplayScriptMetadata({this.platform, this.timeoutMs, this.retries});
+  /// File-local `env KEY=VALUE` directives, in source order. Drives the
+  /// fileEnv layer of replay variable resolution. Null when the script
+  /// has no env directives (distinct from an empty map for round-trip
+  /// fidelity).
+  final Map<String, String>? env;
+
+  const ReplayScriptMetadata({
+    this.platform,
+    this.timeoutMs,
+    this.retries,
+    this.env,
+  });
 
   /// JSON serialization.
   Map<String, Object?> toJson() => {
     if (platform != null) 'platform': platform,
     if (timeoutMs != null) 'timeoutMs': timeoutMs,
     if (retries != null) 'retries': retries,
+    if (env != null && env!.isNotEmpty) 'env': env,
   };
 
   @override
   String toString() =>
-      'ReplayScriptMetadata(platform: $platform, timeoutMs: $timeoutMs, retries: $retries)';
+      'ReplayScriptMetadata(platform: $platform, timeoutMs: $timeoutMs, '
+      'retries: $retries, env: $env)';
+}
+
+/// Result of [parseReplayScriptDetailed]: the action list plus the
+/// 1-based line number each action lives on. Used by the replay
+/// runtime to attach `file:line` to interpolation errors.
+class ParsedReplayScript {
+  final List<SessionAction> actions;
+  final List<int> actionLines;
+  const ParsedReplayScript({required this.actions, required this.actionLines});
 }
 
 /// Parse a replay script string into a list of [SessionAction]s.
-/// Comments and blank lines are skipped; context headers are ignored.
-List<SessionAction> parseReplayScript(String script) {
+/// Comments, blank lines, env directives, and context headers are
+/// skipped. Throws on misplaced env directives (must precede actions).
+List<SessionAction> parseReplayScript(String script) =>
+    parseReplayScriptDetailed(script).actions;
+
+/// Parse a replay script and also return the 1-based source line for
+/// every action, so callers can produce file:line diagnostics during
+/// variable interpolation or per-step failures.
+ParsedReplayScript parseReplayScriptDetailed(String script) {
   final actions = <SessionAction>[];
+  final actionLines = <int>[];
   final lines = script.split(RegExp(r'\r?\n'));
-  for (final line in lines) {
-    final parsed = _parseReplayScriptLine(line);
-    if (parsed != null) {
-      actions.add(parsed);
+  var sawAction = false;
+  for (var index = 0; index < lines.length; index++) {
+    final raw = lines[index];
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
+    if (_isReplayEnvLine(trimmed)) {
+      if (sawAction) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'env directives must precede all actions (line ${index + 1}).',
+        );
+      }
+      continue;
     }
+    final parsed = _parseReplayScriptLine(raw);
+    if (parsed == null) continue;
+    actions.add(parsed);
+    actionLines.add(index + 1);
+    sawAction = true;
   }
-  return actions;
+  return ParsedReplayScript(actions: actions, actionLines: actionLines);
 }
 
-/// Read metadata from the leading context header block in [script].
-/// Metadata is extracted from lines matching 'context platform=... timeout=... retries=...'.
+/// Read metadata from the leading context header + env directives in
+/// [script]. The leading context line carries platform/timeout/retries
+/// kvs; standalone `env KEY=VALUE` lines populate the env map. We scan
+/// the whole prelude (env directives can be interleaved with comments
+/// before the context line) but stop at the first non-comment,
+/// non-context, non-env line.
 ReplayScriptMetadata readReplayScriptMetadata(String script) {
   final metadata = <String, Object?>{};
+  final env = <String, String>{};
   final lines = script.split(RegExp(r'\r?\n'));
-  for (final line in lines) {
+  for (var index = 0; index < lines.length; index++) {
+    final line = lines[index];
     final trimmed = line.trim();
     if (trimmed.isEmpty || trimmed.startsWith('#')) continue;
-    // Metadata comes only from the leading context header block.
+    if (_isReplayEnvLine(trimmed)) {
+      _ingestEnvLine(env, trimmed, index + 1);
+      continue;
+    }
     if (!trimmed.startsWith('context ')) break;
 
     final platformMatch = RegExp(
@@ -94,7 +150,69 @@ ReplayScriptMetadata readReplayScriptMetadata(String script) {
     platform: metadata['platform'] as String?,
     timeoutMs: metadata['timeoutMs'] as int?,
     retries: metadata['retries'] as int?,
+    env: env.isEmpty ? null : env,
   );
+}
+
+bool _isReplayEnvLine(String trimmed) =>
+    trimmed == 'env' ||
+    trimmed.startsWith('env ') ||
+    trimmed.startsWith('env\t');
+
+void _ingestEnvLine(
+  Map<String, String> env,
+  String trimmed,
+  int lineNumber,
+) {
+  final body = trimmed.substring(3).trimLeft();
+  final eqIndex = body.indexOf('=');
+  if (eqIndex <= 0) {
+    throw AppError(
+      AppErrorCodes.invalidArgs,
+      'Invalid env directive on line $lineNumber: expected "env KEY=VALUE".',
+    );
+  }
+  final key = body.substring(0, eqIndex);
+  if (!replayVarKeyRe.hasMatch(key)) {
+    throw AppError(
+      AppErrorCodes.invalidArgs,
+      'Invalid env key "$key" on line $lineNumber: keys must be uppercase '
+      'letters, digits, and underscores (e.g. APP_ID).',
+    );
+  }
+  if (key.startsWith('AD_')) {
+    throw AppError(
+      AppErrorCodes.invalidArgs,
+      'Invalid env key "$key" on line $lineNumber: the AD_* namespace is '
+      'reserved for built-in variables. Rename $key to avoid the AD_ prefix.',
+    );
+  }
+  if (env.containsKey(key)) {
+    throw AppError(
+      AppErrorCodes.invalidArgs,
+      'Duplicate env directive "$key" on line $lineNumber.',
+    );
+  }
+  env[key] = _decodeReplayEnvValue(body.substring(eqIndex + 1), lineNumber);
+}
+
+String _decodeReplayEnvValue(String raw, int lineNumber) {
+  if (raw.isEmpty) return '';
+  if (raw.startsWith('"')) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! String) {
+        throw const FormatException('not a string literal');
+      }
+      return decoded;
+    } on FormatException {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'Invalid quoted env value on line $lineNumber.',
+      );
+    }
+  }
+  return raw;
 }
 
 /// Assign a metadata value, throwing if a conflicting value already exists.

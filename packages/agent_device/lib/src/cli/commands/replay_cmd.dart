@@ -30,6 +30,16 @@ class ReplayCommand extends AgentDeviceCommand {
             'a fresh snapshot and, on success, rewrite the .ad file so '
             'the next run uses the healed selectors.',
         negatable: false,
+      )
+      ..addMultiOption(
+        'env',
+        abbr: 'e',
+        help:
+            r'Override a replay variable (KEY=VALUE). Highest precedence; '
+            r'overrides AD_VAR_* shell env, file env directives, and '
+            r'built-ins. Repeat to set multiple. Reserved AD_* keys are '
+            r'rejected.',
+        valueHelp: 'KEY=VALUE',
       );
   }
 
@@ -57,11 +67,17 @@ class ReplayCommand extends AgentDeviceCommand {
     final device = await openAgentDevice();
     final artifactDir = _resolveArtifactDir(scriptPath);
     final replayUpdate = argResults?['replay-update'] == true;
+    final cliEnv =
+        argResults?['env'] as List<String>? ?? const <String>[];
     final result = await runReplayScript(
       scriptPath: scriptPath,
       device: device,
       artifactDir: artifactDir,
       replayUpdate: replayUpdate,
+      cliEnv: cliEnv,
+      sessionName: sessionName,
+      platform: argResults?['platform'] as String?,
+      deviceLabel: argResults?['device'] as String?,
       onStep: (step) {
         if (!asJson) {
           final marker = step.ok ? 'ok' : 'FAIL';
@@ -113,6 +129,14 @@ class TestCommand extends AgentDeviceCommand {
             'Self-heal failing selector steps on a fresh snapshot and '
             'write healed actions back to the .ad file.',
         negatable: false,
+      )
+      ..addMultiOption(
+        'env',
+        abbr: 'e',
+        help:
+            r'Override a replay variable (KEY=VALUE). Repeat to set '
+            r'multiple. Reserved AD_* keys are rejected.',
+        valueHelp: 'KEY=VALUE',
       );
   }
 
@@ -135,6 +159,8 @@ class TestCommand extends AgentDeviceCommand {
         int.tryParse(argResults?['retries'] as String? ?? '0') ?? 0;
     final rootDir = argResults?['artifact-dir'] as String?;
     final replayUpdate = argResults?['replay-update'] == true;
+    final cliEnv =
+        argResults?['env'] as List<String>? ?? const <String>[];
 
     final scripts = await _resolveScripts(positionals);
     if (scripts.isEmpty) {
@@ -165,6 +191,10 @@ class TestCommand extends AgentDeviceCommand {
             device: device,
             artifactDir: artifactDir,
             replayUpdate: replayUpdate,
+            cliEnv: cliEnv,
+            sessionName: sessionName,
+            platform: argResults?['platform'] as String?,
+            deviceLabel: argResults?['device'] as String?,
             onStep: (step) {
               if (!asJson) {
                 final marker = step.ok ? 'ok' : 'FAIL';

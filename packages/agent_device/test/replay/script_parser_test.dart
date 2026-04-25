@@ -288,4 +288,55 @@ open app''';
       expect(metadata.platform, equals('ios'));
     });
   });
+
+  group('env directives', () {
+    test('parses env KEY=VALUE before context', () {
+      final script = 'env APP=dev\nenv REGION=eu\ncontext platform=ios\nhome\n';
+      final metadata = readReplayScriptMetadata(script);
+      expect(metadata.env, equals({'APP': 'dev', 'REGION': 'eu'}));
+      expect(metadata.platform, equals('ios'));
+    });
+
+    test('quoted values support whitespace/escapes via JSON decoding', () {
+      final script = 'env GREETING="hello world\\n"\nhome\n';
+      final metadata = readReplayScriptMetadata(script);
+      expect(metadata.env, equals({'GREETING': 'hello world\n'}));
+    });
+
+    test('rejects AD_* env keys', () {
+      expect(
+        () => readReplayScriptMetadata('env AD_SESSION=evil\nhome\n'),
+        _appErr(),
+      );
+    });
+
+    test('rejects duplicate env directives', () {
+      expect(
+        () =>
+            readReplayScriptMetadata('env APP=a\nenv APP=b\nhome\n'),
+        _appErr(),
+      );
+    });
+
+    test('rejects invalid key shapes', () {
+      expect(
+        () => readReplayScriptMetadata('env lowercase=v\nhome\n'),
+        _appErr(),
+      );
+    });
+
+    test('parseReplayScript rejects env after first action', () {
+      final script = 'home\nenv APP=v\n';
+      expect(() => parseReplayScript(script), _appErr());
+    });
+
+    test('parseReplayScriptDetailed surfaces 1-based line numbers', () {
+      final script = 'env APP=dev\n# comment\n\nopen \${APP}\n# trailer\nhome\n';
+      final parsed = parseReplayScriptDetailed(script);
+      expect(parsed.actions, hasLength(2));
+      expect(parsed.actionLines, equals([4, 6]));
+    });
+  });
 }
+
+Matcher _appErr() => throwsA(isA<Object>());
