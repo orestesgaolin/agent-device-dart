@@ -859,6 +859,103 @@ Future<List<String>> dispatchReplayAction({
       );
       return [outPath];
 
+    case 'clipboard':
+      final setText = flags['set']?.toString() ?? (positionals.isNotEmpty ? positionals.first : null);
+      if (setText != null) {
+        await device.setClipboard(setText);
+      } else {
+        await device.getClipboard();
+      }
+      return const [];
+
+    case 'keyboard':
+      if (positionals.isEmpty) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "keyboard" requires an action (status | get | dismiss | hide).',
+        );
+      }
+      await device.setKeyboard(positionals.first);
+      return const [];
+
+    case 'settings':
+      await device.openSettings(positionals.isEmpty ? null : positionals.first);
+      return const [];
+
+    case 'trigger-app-event':
+      if (positionals.isEmpty) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "trigger-app-event" requires an event name.',
+        );
+      }
+      Map<String, Object?>? payload;
+      final payloadRaw = flags['payload'];
+      if (payloadRaw is Map) {
+        payload = {for (final e in payloadRaw.entries) e.key.toString(): e.value};
+      }
+      await device.triggerAppEvent(positionals.first, payload: payload);
+      return const [];
+
+    case 'alert':
+      final sub = positionals.isNotEmpty ? positionals.first : 'get';
+      final alertAction = BackendAlertAction.fromString(sub);
+      if (alertAction == null) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "alert" action must be get | accept | dismiss | wait, got "$sub".',
+        );
+      }
+      await device.handleAlert(alertAction);
+      return const [];
+
+    case 'install':
+      if (positionals.isEmpty) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "install" requires a path.',
+        );
+      }
+      await device.installApp(
+        path: positionals.first,
+        app: flags['app']?.toString(),
+      );
+      return const [];
+
+    case 'push':
+      if (positionals.isEmpty) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "push" requires a target path.',
+        );
+      }
+      final pushPayload = flags['payload'];
+      final BackendPushInput input;
+      if (pushPayload is Map) {
+        input = BackendPushInputJson(
+          {for (final e in pushPayload.entries) e.key.toString(): e.value},
+        );
+      } else if (positionals.length >= 2) {
+        input = BackendPushInputFile(positionals[1]);
+      } else {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          'replay "push" requires --payload <json> or <target> <source-path>.',
+        );
+      }
+      await device.pushFile(input, positionals.first);
+      return const [];
+
+    case 'apps':
+      await device.listApps();
+      return const [];
+
+    case 'boot':
+      await device.bootDevice(
+        name: positionals.isEmpty ? null : positionals.first,
+      );
+      return const [];
+
     default:
       throw AppError(
         AppErrorCodes.unsupportedOperation,
