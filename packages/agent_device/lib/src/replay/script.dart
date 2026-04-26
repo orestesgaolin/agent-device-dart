@@ -575,17 +575,19 @@ bool _isWhitespace(String char) {
   return RegExp(r'\s').hasMatch(char);
 }
 
-/// Parse a JSON string literal (including quotes).
+/// Parse a JSON string literal (including the surrounding quotes).
+/// Delegates to `jsonDecode` so the full escape grammar works —
+/// `\n`, `\t`, `\u00XX`, etc. — not just the bare-minimum `\"` / `\\`
+/// the earlier hand-written stub covered.
 String _parseJsonString(String literal) {
-  // Use a simple unquoting that mirrors JSON.parse() behavior
   if (!literal.startsWith('"') || !literal.endsWith('"')) {
     throw FormatException('Not a JSON string: $literal');
   }
-  final content = literal.substring(1, literal.length - 1);
-  // Basic unescape: \" -> ", \\ -> \, etc.
-  return content.replaceAll(r'\"', '"').replaceAll(r'\\', '\\');
-  // TODO(port): a full JSON string parser would handle \n, \t, \u, etc.
-  // For now, this covers the common case of quoted selectors.
+  final decoded = jsonDecode(literal);
+  if (decoded is! String) {
+    throw FormatException('Not a JSON string literal: $literal');
+  }
+  return decoded;
 }
 
 /// Format a replay action back into a script line.

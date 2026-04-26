@@ -4,6 +4,7 @@
 // and emits the failure context.
 library;
 
+import 'dart:async';
 import 'dart:io';
 
 import 'package:agent_device/src/replay/replay_runtime.dart';
@@ -137,6 +138,29 @@ class TestCommand extends AgentDeviceCommand {
             r'Override a replay variable (KEY=VALUE). Repeat to set '
             r'multiple. Reserved AD_* keys are rejected.',
         valueHelp: 'KEY=VALUE',
+      )
+      ..addFlag(
+        'fail-fast',
+        help:
+            'Stop running additional scripts after the first failure. '
+            'Each script still exhausts its own retries before failing.',
+        negatable: false,
+      )
+      ..addOption(
+        'timeout-ms',
+        help:
+            'Per-script wall-clock timeout in milliseconds. The active '
+            'attempt is cancelled and recorded as a failure when the '
+            'budget is exhausted; remaining retries are still tried. '
+            'Per-script `context timeout=` overrides this CLI value.',
+      )
+      ..addOption(
+        'report-junit',
+        help:
+            'Write a JUnit XML report to the given path summarising every '
+            'script + attempt. Suitable for CI consumers (GitHub Actions, '
+            'Jenkins, etc.).',
+        valueHelp: 'PATH',
       );
   }
 
@@ -161,6 +185,17 @@ class TestCommand extends AgentDeviceCommand {
     final replayUpdate = argResults?['replay-update'] == true;
     final cliEnv =
         argResults?['env'] as List<String>? ?? const <String>[];
+    final failFast = argResults?['fail-fast'] == true;
+    final cliTimeoutMs = int.tryParse(
+      argResults?['timeout-ms'] as String? ?? '',
+    );
+    if (cliTimeoutMs != null && cliTimeoutMs <= 0) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        '--timeout-ms must be a positive integer.',
+      );
+    }
+    final junitPath = argResults?['report-junit'] as String?;
 
     final scripts = await _resolveScripts(positionals);
     if (scripts.isEmpty) {
@@ -176,17 +211,19 @@ class TestCommand extends AgentDeviceCommand {
 
     for (final scriptPath in scripts) {
       if (!asJson) stdout.writeln('› ${p.basename(scriptPath)}');
-      // Per-script context header can override retries (TS parity).
+      // Per-script context header can override retries + timeout (TS parity).
       final text = await File(scriptPath).readAsString();
       final meta = script.readReplayScriptMetadata(text);
       final retries = meta.retries ?? cliRetries;
+      final timeoutMs = meta.timeoutMs ?? cliTimeoutMs;
       final device = await openAgentDevice();
       Object? finalResult;
       bool ok = false;
+      final scriptStartedAt = DateTime.now();
       for (int attempt = 0; attempt <= retries; attempt++) {
         final artifactDir = _artifactDirFor(rootDir, scriptPath, attempt);
         try {
-          final res = await runReplayScript(
+          final attemptFuture = runReplayScript(
             scriptPath: scriptPath,
             device: device,
             artifactDir: artifactDir,
@@ -205,9 +242,28 @@ class TestCommand extends AgentDeviceCommand {
               }
             },
           );
+          final res = timeoutMs == null
+              ? await attemptFuture
+              : await attemptFuture.timeout(
+                  Duration(milliseconds: timeoutMs),
+                  onTimeout: () => throw TimeoutException(
+                    'replay timed out after ${timeoutMs}ms',
+                    Duration(milliseconds: timeoutMs),
+                  ),
+                );
           finalResult = {...res.toJson(), 'attempts': attempt + 1};
           ok = res.ok;
           if (ok) break;
+        } on TimeoutException catch (e) {
+          finalResult = {
+            'scriptPath': scriptPath,
+            'attempts': attempt + 1,
+            'ok': false,
+            'errorCode': 'TIMEOUT',
+            'errorMessage': e.message ?? 'replay timed out',
+            'timeoutMs': timeoutMs,
+          };
+          if (attempt == retries) break;
         } catch (e) {
           finalResult = {
             'scriptPath': scriptPath,
@@ -218,25 +274,52 @@ class TestCommand extends AgentDeviceCommand {
           if (attempt == retries) break;
         }
       }
+      final scriptDurationMs =
+          DateTime.now().difference(scriptStartedAt).inMilliseconds;
+      final entry = {
+        ...finalResult! as Map<String, Object?>,
+        'scriptDurationMs': scriptDurationMs,
+        'scriptName': p.basename(scriptPath),
+      };
+      results.add(entry);
       if (ok) {
         passed++;
       } else {
         failed++;
+        if (failFast) {
+          if (!asJson) stdout.writeln('› stopping (--fail-fast)');
+          break;
+        }
       }
-      results.add(finalResult! as Map<String, Object?>);
     }
 
+    final attempted = results.length;
     final summary = {
       'passed': passed,
       'failed': failed,
       'total': scripts.length,
+      'attempted': attempted,
+      if (failFast && attempted < scripts.length) 'stoppedEarly': true,
       'results': results,
     };
+
+    if (junitPath != null && junitPath.isNotEmpty) {
+      try {
+        final file = File(junitPath);
+        await file.parent.create(recursive: true);
+        await file.writeAsString(buildJUnitReport(results));
+      } on Object catch (e) {
+        stderr.writeln(
+          'warning: failed to write JUnit report to $junitPath: $e',
+        );
+      }
+    }
+
     emitResult(
       summary,
       humanFormat: (_) => failed == 0
           ? '✓ $passed/${scripts.length} scripts passed'
-          : '✗ $failed/${scripts.length} scripts failed, $passed passed',
+          : '✗ $failed/$attempted scripts failed, $passed passed',
     );
     return failed == 0 ? 0 : 1;
   }
@@ -298,3 +381,52 @@ class TestCommand extends AgentDeviceCommand {
     return hits;
   }
 }
+
+/// Serialise the per-script results from `agent-device test` into a
+/// JUnit-XML `<testsuite>` document. Each result map is expected to
+/// carry `scriptName` (or `scriptPath`), `scriptDurationMs`, `ok`,
+/// and on failure `errorCode` + `errorMessage`. Pure function so it
+/// can be unit-tested without spinning up a device.
+String buildJUnitReport(List<Map<String, Object?>> results) {
+  final buf = StringBuffer();
+  buf.writeln('<?xml version="1.0" encoding="UTF-8"?>');
+  final totalTime = results.fold<int>(
+    0,
+    (acc, r) => acc + ((r['scriptDurationMs'] as int?) ?? 0),
+  );
+  final failures = results.where((r) => r['ok'] != true).length;
+  buf.writeln(
+    '<testsuite name="agent-device" tests="${results.length}" '
+    'failures="$failures" time="${(totalTime / 1000).toStringAsFixed(3)}">',
+  );
+  for (final r in results) {
+    final name = (r['scriptName'] ?? r['scriptPath'] ?? 'unknown') as String;
+    final timeSec = ((r['scriptDurationMs'] as int?) ?? 0) / 1000;
+    final ok = r['ok'] == true;
+    buf.write(
+      '  <testcase name="${_xmlAttr(name)}" '
+      'time="${timeSec.toStringAsFixed(3)}"',
+    );
+    if (ok) {
+      buf.writeln(' />');
+    } else {
+      buf.writeln('>');
+      final code = (r['errorCode'] as String?) ?? 'FAIL';
+      final msg = (r['errorMessage'] as String?) ?? 'replay failed';
+      buf.writeln(
+        '    <failure type="${_xmlAttr(code)}" '
+        'message="${_xmlAttr(msg)}"></failure>',
+      );
+      buf.writeln('  </testcase>');
+    }
+  }
+  buf.writeln('</testsuite>');
+  return buf.toString();
+}
+
+String _xmlAttr(String s) => s
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&apos;');

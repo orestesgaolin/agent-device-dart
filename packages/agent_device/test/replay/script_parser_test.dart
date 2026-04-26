@@ -191,6 +191,18 @@ snapshot -i''';
       expect(actions[0].positionals[0], equals('label="Multi Word"'));
     });
 
+    test('quoted strings honour the full JSON escape grammar', () {
+      // Tab + newline + unicode escape; the previous hand-rolled
+      // `_parseJsonString` only handled `\"` and `\\`.
+      final script = r'click "tab\there\nline nbsp"';
+      final actions = parseReplayScript(script);
+      expect(actions, hasLength(1));
+      expect(
+        actions[0].positionals[0],
+        equals('tab\there\nline nbsp'),
+      );
+    });
+
     test('all actions have valid ts (timestamp)', () {
       final script = '''open app
 snapshot
