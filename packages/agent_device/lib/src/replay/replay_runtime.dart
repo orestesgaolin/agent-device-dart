@@ -158,9 +158,7 @@ Future<ReplayRunResult> runReplayScript({
   // or `${VAR}` substitutions would be silently dropped — the writer
   // doesn't yet round-trip those, so let the user fix them by hand
   // first rather than corrupt their script.
-  if (replayUpdate &&
-      metadata.env != null &&
-      metadata.env!.isNotEmpty) {
+  if (replayUpdate && metadata.env != null && metadata.env!.isNotEmpty) {
     throw AppError(
       AppErrorCodes.invalidArgs,
       'replay -u does not yet preserve env directives. Temporarily remove '
@@ -215,7 +213,7 @@ Future<ReplayRunResult> runReplayScript({
     );
     final stepSw = Stopwatch()..start();
     try {
-      final artifacts = await _dispatch(
+      final artifacts = await dispatchReplayAction(
         action: action,
         device: device,
         artifactDir: effectiveArtifactDir,
@@ -238,7 +236,7 @@ Future<ReplayRunResult> runReplayScript({
           : null;
       if (healedAction != null) {
         try {
-          final artifacts = await _dispatch(
+          final artifacts = await dispatchReplayAction(
             action: healedAction,
             device: device,
             artifactDir: effectiveArtifactDir,
@@ -348,10 +346,13 @@ Map<String, String> _buildReplayBuiltins({
       ? p.relative(scriptPath, from: cwd)
       : scriptPath;
   final builtins = <String, String>{
-    if (sessionName != null && sessionName.isNotEmpty) 'AD_SESSION': sessionName,
+    if (sessionName != null && sessionName.isNotEmpty)
+      'AD_SESSION': sessionName,
     'AD_FILENAME': relative,
   };
-  if (platform != null && platform.isNotEmpty) builtins['AD_PLATFORM'] = platform;
+  if (platform != null && platform.isNotEmpty) {
+    builtins['AD_PLATFORM'] = platform;
+  }
   if (deviceLabel != null && deviceLabel.isNotEmpty) {
     builtins['AD_DEVICE'] = deviceLabel;
   }
@@ -413,7 +414,10 @@ Future<SessionAction?> _tryHeal({
 /// Dispatch a single [SessionAction] to its matching [AgentDevice] call.
 /// Returns any artifact paths (screenshot files, snapshot JSON dumps)
 /// created by the action so the caller can aggregate them per-test.
-Future<List<String>> _dispatch({
+///
+/// Public so the `batch` runner in `batch.dart` can reuse the same
+/// command surface as `.ad` replay.
+Future<List<String>> dispatchReplayAction({
   required SessionAction action,
   required AgentDevice device,
   required String? artifactDir,

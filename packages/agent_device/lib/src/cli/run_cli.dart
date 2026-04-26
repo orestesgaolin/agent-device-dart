@@ -5,6 +5,7 @@ import 'dart:io';
 
 import 'package:args/command_runner.dart';
 
+import 'commands/batch_cmd.dart';
 import 'commands/completion_cmd.dart';
 import 'commands/devices_cmd.dart';
 import 'commands/ensure_simulator_cmd.dart';
@@ -62,6 +63,7 @@ CommandRunner<int> buildCliRunner({String executableName = 'agent-device'}) {
     );
 
   runner
+    ..addCommand(BatchCommand())
     ..addCommand(DevicesCommand())
     ..addCommand(SnapshotCommand())
     ..addCommand(ScreenshotCommand())
