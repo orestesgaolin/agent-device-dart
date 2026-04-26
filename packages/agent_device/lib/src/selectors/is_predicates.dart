@@ -86,25 +86,33 @@ IsPredicateResult evaluateIsPredicate({
 }
 
 /// Check if a node is visible in an assertion context.
+///
+/// Priority: viewport geometry first. `hittable` is only used as a
+/// last-resort fallback when no rect is available at all. This matches
+/// the TS `isNodeVisibleInEffectiveViewport` behaviour — a node can be
+/// `hittable` according to the accessibility system yet scrolled out of
+/// the viewport.
 bool _isAssertionVisible(SnapshotNode node, List<SnapshotNode> nodes) {
-  if (node.hittable == true) return true;
   if (_hasPositiveRect(node.rect)) return _isRectVisibleInViewport(node, nodes);
   if (node.rect != null) return false;
+  // No rect at all — try to resolve a parent anchor with geometry.
   final anchor = _resolveVisibilityAnchor(node, nodes);
-  if (anchor == null) return false;
-  if (anchor.hittable == true) return true;
-  if (!_hasPositiveRect(anchor.rect)) return false;
-  return _isRectVisibleInViewport(anchor, nodes);
+  if (anchor != null && _hasPositiveRect(anchor.rect)) {
+    return _isRectVisibleInViewport(anchor, nodes);
+  }
+  // No geometry available — assume visible (conservative, matches TS).
+  return true;
 }
 
-/// Check if a rect is visible in the effective viewport.
+/// Port of `isNodeVisibleInEffectiveViewport` from
+/// mobile-snapshot-semantics.ts — checks whether [node]'s rect overlaps
+/// the effective viewport (nearest scrollable ancestor, or the
+/// Application/Window rect as fallback).
 bool _isRectVisibleInViewport(SnapshotNode node, List<SnapshotNode> nodes) {
-  // TODO(port): This delegates to isNodeVisibleInEffectiveViewport from
-  // mobile-snapshot-semantics.ts, which is not yet ported. For now, we
-  // check basic rect visibility.
-  if (node.rect == null) return false;
-  // Check if rect has positive dimensions
-  return node.rect!.width > 0 && node.rect!.height > 0;
+  if (node.rect == null) return true;
+  final viewport = _resolveEffectiveViewportRect(node, nodes);
+  if (viewport == null) return true;
+  return _rectsOverlap(node.rect!, viewport);
 }
 
 /// Find a useful visibility anchor node by traversing parents.
@@ -148,18 +156,134 @@ bool _isUsefulVisibilityAnchor(SnapshotNode node) {
   return node.hittable == true || _hasPositiveRect(node.rect);
 }
 
-/// Check if a rect has positive dimensions.
-bool _hasPositiveRect(Rect? rect) {
+// =========================================================================
+// Viewport visibility — port of rect-visibility.ts +
+// mobile-snapshot-semantics.ts § isNodeVisibleInEffectiveViewport
+// =========================================================================
+
+/// Resolve the effective viewport for [node]: the nearest scrollable
+/// ancestor's rect, or the Application/Window rect as fallback.
+Rect? _resolveEffectiveViewportRect(
+  SnapshotNode node,
+  List<SnapshotNode> nodes,
+) {
+  final byIndex = _buildIndexMap(nodes);
+  final scrollableRect = _findNearestScrollableAncestorRect(node, byIndex);
+  if (scrollableRect != null) return scrollableRect;
+  return _resolveViewportRect(nodes, node.rect!);
+}
+
+/// Walk up the parent chain to find the nearest scrollable ancestor with
+/// a valid rect. Returns that ancestor's rect (the clipping region).
+Rect? _findNearestScrollableAncestorRect(
+  SnapshotNode node,
+  Map<int, SnapshotNode> byIndex,
+) {
+  var parentIdx = node.parentIndex;
+  final visited = <int>{};
+  while (parentIdx != null && !visited.contains(parentIdx)) {
+    visited.add(parentIdx);
+    final parent = byIndex[parentIdx];
+    if (parent == null) break;
+    if (parent.rect != null && _isScrollableNodeLike(parent)) {
+      return parent.rect;
+    }
+    parentIdx = parent.parentIndex;
+  }
+  return null;
+}
+
+/// Fallback viewport resolution: find the largest Application/Window rect
+/// that contains the target center, or just the largest such rect overall.
+Rect? _resolveViewportRect(List<SnapshotNode> nodes, Rect targetRect) {
+  final cx = targetRect.x + targetRect.width / 2;
+  final cy = targetRect.y + targetRect.height / 2;
+
+  final rectNodes = nodes.where((n) => _hasValidRect(n.rect)).toList();
+  final viewportNodes = rectNodes.where((n) {
+    final t = (n.type ?? '').toLowerCase();
+    return t.contains('application') || t.contains('window');
+  }).toList();
+
+  final containingViewport = _pickLargestRect(
+    viewportNodes
+        .map((n) => n.rect!)
+        .where((r) => _containsPoint(r, cx, cy))
+        .toList(),
+  );
+  if (containingViewport != null) return containingViewport;
+
+  final fallback = _pickLargestRect(
+    viewportNodes.map((n) => n.rect!).toList(),
+  );
+  if (fallback != null) return fallback;
+
+  return _pickLargestRect(
+    rectNodes
+        .map((n) => n.rect!)
+        .where((r) => _containsPoint(r, cx, cy))
+        .toList(),
+  );
+}
+
+/// True when [a] and [b] have any overlap (inclusive edges).
+bool _rectsOverlap(Rect a, Rect b) {
+  final hOverlap = (a.x <= b.x + b.width) && (a.x + a.width >= b.x);
+  final vOverlap = (a.y <= b.y + b.height) && (a.y + a.height >= b.y);
+  return hOverlap && vOverlap;
+}
+
+bool _isScrollableNodeLike(SnapshotNode node) {
+  final type = (node.type ?? '').toLowerCase();
+  if (type.contains('scroll') ||
+      type.contains('recyclerview') ||
+      type.contains('listview') ||
+      type.contains('gridview') ||
+      type.contains('collectionview') ||
+      type == 'table') {
+    return true;
+  }
+  final role = '${node.role ?? ''} ${node.subrole ?? ''}'.toLowerCase();
+  return role.contains('scroll');
+}
+
+Map<int, SnapshotNode> _buildIndexMap(List<SnapshotNode> nodes) {
+  return {for (final n in nodes) n.index: n};
+}
+
+bool _containsPoint(Rect r, double x, double y) {
+  return x >= r.x && x <= r.x + r.width && y >= r.y && y <= r.y + r.height;
+}
+
+Rect? _pickLargestRect(List<Rect> rects) {
+  Rect? best;
+  var bestArea = -1.0;
+  for (final r in rects) {
+    final area = r.width * r.height;
+    if (area > bestArea) {
+      best = r;
+      bestArea = area;
+    }
+  }
+  return best;
+}
+
+// =========================================================================
+// Shared helpers
+// =========================================================================
+
+bool _hasValidRect(Rect? rect) {
   return rect != null &&
       rect.x.isFinite &&
       rect.y.isFinite &&
       rect.width.isFinite &&
-      rect.height.isFinite &&
-      rect.width > 0 &&
-      rect.height > 0;
+      rect.height.isFinite;
 }
 
-/// Normalize a type string.
+bool _hasPositiveRect(Rect? rect) {
+  return _hasValidRect(rect) && rect!.width > 0 && rect.height > 0;
+}
+
 String _normalizeType(String type) {
   var normalized = type.toLowerCase();
   if (normalized.contains('.')) {
@@ -171,7 +295,6 @@ String _normalizeType(String type) {
   return normalized;
 }
 
-/// Simple JSON encoder (avoids import for now).
 String _jsonEncode(Map<String, Object?> map) {
   final parts = <String>[];
   map.forEach((k, v) {
