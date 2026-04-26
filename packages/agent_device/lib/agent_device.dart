@@ -116,11 +116,7 @@ export 'src/replay/session_action.dart' show SessionAction, SessionRuntimeHints;
 // Runtime façade (programmatic API).
 export 'src/runtime/agent_device.dart' show AgentDevice, DeviceSelector;
 export 'src/runtime/contract.dart'
-    show
-        CommandClock,
-        CommandSessionRecord,
-        CommandSessionStore,
-        SystemClock;
+    show CommandClock, CommandSessionRecord, CommandSessionStore, SystemClock;
 export 'src/runtime/file_session_store.dart' show FileSessionStore;
 export 'src/runtime/paths.dart' show StatePaths, resolveStatePaths;
 export 'src/runtime/session_store.dart'
