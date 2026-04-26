@@ -15,8 +15,6 @@ void main() {
     setUpAll(() {
       final fixture = File(
         p.join(
-          'packages',
-          'agent_device',
           'test',
           'platforms',
           'ios',
