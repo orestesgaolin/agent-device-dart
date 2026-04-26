@@ -1,5 +1,6 @@
 library;
 
+import 'package:agent_device/src/snapshot/snapshot.dart';
 import 'package:agent_device/src/utils/errors.dart';
 
 import '../base_command.dart';
@@ -42,33 +43,47 @@ class SnapshotCommand extends AgentDeviceCommand {
       throw AppError(AppErrorCodes.invalidArgs, '--depth must be an integer.');
     }
     final device = await openAgentDevice();
-    try {
-      final snap = await device.snapshot(
-        interactiveOnly: (argResults?['interactive'] as bool?) ?? false
-            ? true
-            : null,
-        compact: (argResults?['compact'] as bool?) ?? false ? true : null,
-        depth: depth,
-        scope: argResults?['scope'] as String?,
-        raw: (argResults?['raw'] as bool?) ?? false ? true : null,
-      );
-      final data = <String, Object?>{
-        'deviceSerial': device.device.id,
-        'nodeCount': (snap.nodes ?? const []).length,
-        'rawNodeCount': snap.analysis?.rawNodeCount,
-        'maxDepth': snap.analysis?.maxDepth,
-        'truncated': snap.truncated,
-      };
-      emitResult(
-        data,
-        humanFormat: (d) =>
-            'snapshot: ${data['nodeCount']} visible nodes, '
-            'raw=${data['rawNodeCount']}, depth=${data['maxDepth']}',
-      );
-      return 0;
-    } finally {
-      // Deliberately don't close the session — subsequent CLI calls (e.g.
-      // `tap`, `fill`) reuse the same session. `close` command is explicit.
-    }
+    final snap = await device.snapshot(
+      interactiveOnly: (argResults?['interactive'] as bool?) ?? false
+          ? true
+          : null,
+      compact: (argResults?['compact'] as bool?) ?? false ? true : null,
+      depth: depth,
+      scope: argResults?['scope'] as String?,
+      raw: (argResults?['raw'] as bool?) ?? false ? true : null,
+    );
+
+    final rawNodes = snap.nodes ?? const [];
+    final nodes = rawNodes.whereType<SnapshotNode>().toList();
+
+    final data = <String, Object?>{
+      'deviceSerial': device.device.id,
+      'nodes': nodes.map((n) => n.toJson()).toList(),
+      'nodeCount': nodes.length,
+      'rawNodeCount': snap.analysis?.rawNodeCount,
+      'maxDepth': snap.analysis?.maxDepth,
+      'truncated': snap.truncated,
+    };
+    emitResult(
+      data,
+      humanFormat: (_) {
+        if (nodes.isEmpty) return '(empty snapshot)';
+        final buf = StringBuffer();
+        for (final n in nodes) {
+          final indent = '  ' * (n.depth ?? 0);
+          final tag = n.type ?? n.role ?? '?';
+          final text = n.label ?? n.value ?? n.identifier ?? '';
+          final refTag = '@${n.ref}';
+          buf.writeln('$indent$refTag  $tag  ${text.isNotEmpty ? '"$text"' : ''}');
+        }
+        buf.writeln(
+          '--- ${nodes.length} nodes, '
+          'raw=${snap.analysis?.rawNodeCount}, '
+          'depth=${snap.analysis?.maxDepth}',
+        );
+        return buf.toString().trimRight();
+      },
+    );
+    return 0;
   }
 }
