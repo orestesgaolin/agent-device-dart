@@ -76,6 +76,7 @@ class AndroidBackend extends Backend {
     return BackendSnapshotResult(
       nodes: withRefs,
       truncated: result.truncated,
+      appBundleId: ctx.appBundleId ?? ctx.appId,
       analysis: BackendSnapshotAnalysis(
         rawNodeCount: result.analysis.rawNodeCount,
         maxDepth: result.analysis.maxDepth,

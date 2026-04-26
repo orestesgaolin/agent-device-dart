@@ -69,21 +69,44 @@ class SnapshotCommand extends AgentDeviceCommand {
       humanFormat: (_) {
         if (nodes.isEmpty) return '(empty snapshot)';
         final buf = StringBuffer();
+        final appId = snap.appBundleId;
+        if (appId != null) {
+          buf.writeln('Page: $appId');
+          buf.writeln('App: $appId');
+        }
+        buf.writeln('Snapshot: ${nodes.length} nodes');
         for (final n in nodes) {
           final indent = '  ' * (n.depth ?? 0);
-          final tag = n.type ?? n.role ?? '?';
+          final tag = _humanType(n.type ?? n.role ?? '?');
           final text = n.label ?? n.value ?? n.identifier ?? '';
-          final refTag = '@${n.ref}';
-          buf.writeln('$indent$refTag  $tag  ${text.isNotEmpty ? '"$text"' : ''}');
+          buf.writeln(
+            '$indent@${n.ref} [$tag]${text.isNotEmpty ? ' "$text"' : ''}',
+          );
         }
-        buf.writeln(
-          '--- ${nodes.length} nodes, '
-          'raw=${snap.analysis?.rawNodeCount}, '
-          'depth=${snap.analysis?.maxDepth}',
-        );
         return buf.toString().trimRight();
       },
     );
     return 0;
   }
+}
+
+String _humanType(String raw) {
+  const map = {
+    'StaticText': 'text',
+    'Application': 'application',
+    'Window': 'window',
+    'Button': 'button',
+    'TextField': 'textfield',
+    'Other': 'other',
+    'Image': 'image',
+    'Cell': 'cell',
+    'Table': 'table',
+    'ScrollView': 'scrollview',
+    'NavigationBar': 'navbar',
+    'TabBar': 'tabbar',
+    'Switch': 'switch',
+    'Slider': 'slider',
+    'Link': 'link',
+  };
+  return map[raw] ?? raw.toLowerCase();
 }

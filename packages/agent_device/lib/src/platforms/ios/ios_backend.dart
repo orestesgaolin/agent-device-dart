@@ -191,6 +191,7 @@ class IosBackend extends Backend {
     return BackendSnapshotResult(
       nodes: snapshotNodes,
       truncated: data['truncated'] == true,
+      appBundleId: bundleId,
       analysis: BackendSnapshotAnalysis(
         rawNodeCount: snapshotNodes.length,
         maxDepth: snapshotNodes.fold<int>(
