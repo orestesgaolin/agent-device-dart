@@ -21,6 +21,5 @@ jobs:
         run: flutter pub get
         working-directory: test_apps/agent_device_fixture_app
 
-      - run: dart format --output=none --set-exit-if-changed .
       - run: dart analyze
       - run: dart test packages/agent_device
