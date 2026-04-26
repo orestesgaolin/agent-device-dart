@@ -446,7 +446,6 @@ class BackendSnapshotResult {
   };
 }
 
-
 /// A command to run via runner.
 class BackendRunnerCommand {
   final String command;

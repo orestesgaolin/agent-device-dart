@@ -9,15 +9,16 @@ void main() {
   group('buildJUnitReport', () {
     test('serialises a passing run as an empty <testcase /> tag', () {
       final xml = buildJUnitReport([
-        {
-          'scriptName': 'login.ad',
-          'scriptDurationMs': 1500,
-          'ok': true,
-        },
+        {'scriptName': 'login.ad', 'scriptDurationMs': 1500, 'ok': true},
       ]);
       expect(xml, startsWith('<?xml version="1.0" encoding="UTF-8"?>'));
-      expect(xml, contains('<testsuite name="agent-device" tests="1" '
-          'failures="0" time="1.500">'));
+      expect(
+        xml,
+        contains(
+          '<testsuite name="agent-device" tests="1" '
+          'failures="0" time="1.500">',
+        ),
+      );
       expect(xml, contains('<testcase name="login.ad" time="1.500" />'));
       expect(xml, contains('</testsuite>'));
     });
@@ -35,8 +36,10 @@ void main() {
       expect(xml, contains('failures="1"'));
       expect(
         xml,
-        contains('<failure type="COMMAND_FAILED" '
-            'message="tap target not found"></failure>'),
+        contains(
+          '<failure type="COMMAND_FAILED" '
+          'message="tap target not found"></failure>',
+        ),
       );
       expect(xml, contains('</testcase>'));
     });

@@ -422,4 +422,3 @@ bool hasBackendCapability(Backend backend, BackendCapabilityName capability) {
   final caps = backend.capabilities;
   return caps != null && caps.contains(capability);
 }
-

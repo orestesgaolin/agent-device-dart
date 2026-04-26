@@ -49,7 +49,12 @@ class ReplayVarSources {
   final Map<String, String>? shellEnv;
   final Map<String, String>? cliEnv;
 
-  const ReplayVarSources({this.builtins, this.fileEnv, this.shellEnv, this.cliEnv});
+  const ReplayVarSources({
+    this.builtins,
+    this.fileEnv,
+    this.shellEnv,
+    this.cliEnv,
+  });
 }
 
 bool _isReservedNamespaceKey(String key) =>
@@ -196,8 +201,7 @@ SessionAction resolveReplayAction(
 /// token after parsing — used to guard `replay -u` against rewriting
 /// scripts whose substitutions would be silently dropped.
 bool actionsContainInterpolation(List<SessionAction> actions) {
-  bool containsToken(Object? value) =>
-      value is String && value.contains(r'${');
+  bool containsToken(Object? value) => value is String && value.contains(r'${');
   for (final action in actions) {
     if (action.positionals.any(containsToken)) return true;
     if (action.flags.values.any(containsToken)) return true;

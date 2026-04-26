@@ -84,8 +84,10 @@ void main() {
       await scriptFile.writeAsString(
         'env APP=dev\n'
         'env REGION=eu\n'
-        r'open ${APP}' '\n'
-        r'type ${REGION}-${APP}' '\n',
+        r'open ${APP}'
+        '\n'
+        r'type ${REGION}-${APP}'
+        '\n',
       );
       final result = await runReplayScript(
         scriptPath: scriptFile.path,
@@ -106,7 +108,10 @@ void main() {
       final backend = _RecordingBackend();
       final device = await openDevice(backend);
       final scriptFile = File('${tmp.path}/missing.ad');
-      await scriptFile.writeAsString(r'open ${MISSING}' '\n');
+      await scriptFile.writeAsString(
+        r'open ${MISSING}'
+        '\n',
+      );
       try {
         await runReplayScript(
           scriptPath: scriptFile.path,
@@ -115,10 +120,7 @@ void main() {
         );
         fail('expected throw');
       } catch (e) {
-        expect(
-          e.toString(),
-          contains(r'Unresolved variable ${MISSING}'),
-        );
+        expect(e.toString(), contains(r'Unresolved variable ${MISSING}'));
         expect(e.toString(), contains('missing.ad:1'));
       }
     });
@@ -141,22 +143,27 @@ void main() {
       }
     });
 
-    test('AD_VAR_* shell env entries are imported with prefix stripped',
-        () async {
-      final backend = _RecordingBackend();
-      final device = await openDevice(backend);
-      final scriptFile = File('${tmp.path}/shell-env.ad');
-      await scriptFile.writeAsString(r'open ${APP}' '\n');
-      final result = await runReplayScript(
-        scriptPath: scriptFile.path,
-        device: device,
-        shellEnv: const {'AD_VAR_APP': 'shellv'},
-      );
-      expect(result.ok, isTrue, reason: result.steps.toString());
-      final shellTarget =
-          backend.calls.first.args['target'] as BackendOpenTarget;
-      expect(shellTarget.app, 'shellv');
-    });
+    test(
+      'AD_VAR_* shell env entries are imported with prefix stripped',
+      () async {
+        final backend = _RecordingBackend();
+        final device = await openDevice(backend);
+        final scriptFile = File('${tmp.path}/shell-env.ad');
+        await scriptFile.writeAsString(
+          r'open ${APP}'
+          '\n',
+        );
+        final result = await runReplayScript(
+          scriptPath: scriptFile.path,
+          device: device,
+          shellEnv: const {'AD_VAR_APP': 'shellv'},
+        );
+        expect(result.ok, isTrue, reason: result.steps.toString());
+        final shellTarget =
+            backend.calls.first.args['target'] as BackendOpenTarget;
+        expect(shellTarget.app, 'shellv');
+      },
+    );
 
     test('record start --fps / --quality forward through replay', () async {
       final backend = _RecordingBackend();

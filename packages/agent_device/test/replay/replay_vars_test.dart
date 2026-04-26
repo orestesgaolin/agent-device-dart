@@ -110,16 +110,16 @@ void main() {
     });
 
     test('values may contain `=`', () {
-      expect(
-        parseReplayCliEnvEntries(['KEY=a=b=c']),
-        equals({'KEY': 'a=b=c'}),
-      );
+      expect(parseReplayCliEnvEntries(['KEY=a=b=c']), equals({'KEY': 'a=b=c'}));
     });
   });
 
   group('resolveReplayString', () {
     final scope = buildReplayVarScope(
-      const ReplayVarSources(builtins: {'AD_PLATFORM': 'ios'}, cliEnv: {'APP': 'dev'}),
+      const ReplayVarSources(
+        builtins: {'AD_PLATFORM': 'ios'},
+        cliEnv: {'APP': 'dev'},
+      ),
     );
 
     test('substitutes a known variable', () {

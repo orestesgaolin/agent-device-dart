@@ -159,11 +159,7 @@ bool _isReplayEnvLine(String trimmed) =>
     trimmed.startsWith('env ') ||
     trimmed.startsWith('env\t');
 
-void _ingestEnvLine(
-  Map<String, String> env,
-  String trimmed,
-  int lineNumber,
-) {
+void _ingestEnvLine(Map<String, String> env, String trimmed, int lineNumber) {
   final body = trimmed.substring(3).trimLeft();
   final eqIndex = body.indexOf('=');
   if (eqIndex <= 0) {

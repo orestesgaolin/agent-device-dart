@@ -68,8 +68,7 @@ class ReplayCommand extends AgentDeviceCommand {
     final device = await openAgentDevice();
     final artifactDir = _resolveArtifactDir(scriptPath);
     final replayUpdate = argResults?['replay-update'] == true;
-    final cliEnv =
-        argResults?['env'] as List<String>? ?? const <String>[];
+    final cliEnv = argResults?['env'] as List<String>? ?? const <String>[];
     final result = await runReplayScript(
       scriptPath: scriptPath,
       device: device,
@@ -183,8 +182,7 @@ class TestCommand extends AgentDeviceCommand {
         int.tryParse(argResults?['retries'] as String? ?? '0') ?? 0;
     final rootDir = argResults?['artifact-dir'] as String?;
     final replayUpdate = argResults?['replay-update'] == true;
-    final cliEnv =
-        argResults?['env'] as List<String>? ?? const <String>[];
+    final cliEnv = argResults?['env'] as List<String>? ?? const <String>[];
     final failFast = argResults?['fail-fast'] == true;
     final cliTimeoutMs = int.tryParse(
       argResults?['timeout-ms'] as String? ?? '',
@@ -274,8 +272,9 @@ class TestCommand extends AgentDeviceCommand {
           if (attempt == retries) break;
         }
       }
-      final scriptDurationMs =
-          DateTime.now().difference(scriptStartedAt).inMilliseconds;
+      final scriptDurationMs = DateTime.now()
+          .difference(scriptStartedAt)
+          .inMilliseconds;
       final entry = {
         ...finalResult! as Map<String, Object?>,
         'scriptDurationMs': scriptDurationMs,

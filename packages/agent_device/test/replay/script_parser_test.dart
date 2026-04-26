@@ -197,10 +197,7 @@ snapshot -i''';
       final script = r'click "tab\there\nline nbsp"';
       final actions = parseReplayScript(script);
       expect(actions, hasLength(1));
-      expect(
-        actions[0].positionals[0],
-        equals('tab\there\nline nbsp'),
-      );
+      expect(actions[0].positionals[0], equals('tab\there\nline nbsp'));
     });
 
     test('all actions have valid ts (timestamp)', () {
@@ -324,8 +321,7 @@ open app''';
 
     test('rejects duplicate env directives', () {
       expect(
-        () =>
-            readReplayScriptMetadata('env APP=a\nenv APP=b\nhome\n'),
+        () => readReplayScriptMetadata('env APP=a\nenv APP=b\nhome\n'),
         _appErr(),
       );
     });
@@ -343,7 +339,8 @@ open app''';
     });
 
     test('parseReplayScriptDetailed surfaces 1-based line numbers', () {
-      final script = 'env APP=dev\n# comment\n\nopen \${APP}\n# trailer\nhome\n';
+      final script =
+          'env APP=dev\n# comment\n\nopen \${APP}\n# trailer\nhome\n';
       final parsed = parseReplayScriptDetailed(script);
       expect(parsed.actions, hasLength(2));
       expect(parsed.actionLines, equals([4, 6]));
