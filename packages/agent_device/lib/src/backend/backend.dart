@@ -35,7 +35,6 @@ class BackendCommandContext {
   final String? appId;
   final String? appBundleId;
   final String? deviceSerial;
-  final Object? signal;
   final Map<String, Object?>? metadata;
 
   const BackendCommandContext({
@@ -44,7 +43,6 @@ class BackendCommandContext {
     this.appId,
     this.appBundleId,
     this.deviceSerial,
-    this.signal,
     this.metadata,
   });
 
@@ -56,36 +54,6 @@ class BackendCommandContext {
     if (deviceSerial != null) 'deviceSerial': deviceSerial,
     if (metadata != null) 'metadata': metadata,
   };
-}
-
-// ============================================================================
-// Escape Hatches
-// ============================================================================
-
-/// Callbacks for platform-specific functionality not exposed in the standard
-/// backend interface.
-abstract class BackendEscapeHatches {
-  /// Execute an arbitrary adb command on Android. Only available if
-  /// capabilities includes 'android.shell'.
-  Future<BackendShellResult>? androidShell(
-    BackendCommandContext context,
-    List<String> args,
-  );
-
-  /// Execute a runner command on iOS. Only available if capabilities includes
-  /// 'ios.runnerCommand'.
-  Future<Object?>? iosRunnerCommand(
-    BackendCommandContext context,
-    BackendRunnerCommand command,
-  );
-
-  /// Take a screenshot on macOS desktop. Only available if capabilities
-  /// includes 'macos.desktopScreenshot'.
-  Future<BackendScreenshotResult?>? macosDesktopScreenshot(
-    BackendCommandContext context,
-    String outPath,
-    BackendScreenshotOptions? options,
-  );
 }
 
 // ============================================================================
@@ -117,10 +85,6 @@ abstract class Backend {
 
   /// Capabilities that this backend reports as supported. Defaults to `null`.
   BackendCapabilitySet? get capabilities => null;
-
-  /// Platform-specific escape hatches for unsupported operations. Defaults
-  /// to `null`.
-  BackendEscapeHatches? get escapeHatches => null;
 
   /// Throws [AppError] with [AppErrorCodes.unsupportedOperation] to indicate
   /// the concrete backend does not support [method]. Used as the default
@@ -459,22 +423,3 @@ bool hasBackendCapability(Backend backend, BackendCapabilityName capability) {
   return caps != null && caps.contains(capability);
 }
 
-/// Check if a backend has an escape hatch method for a capability.
-bool hasBackendEscapeHatch(Backend backend, BackendCapabilityName capability) {
-  final hatches = backend.escapeHatches;
-  if (hatches == null) return false;
-
-  // Checking function types for presence (not null comparison).
-  // ignore: unnecessary_null_comparison
-  final hasAndroidShell = hatches.androidShell != null;
-  // ignore: unnecessary_null_comparison
-  final hasIosRunner = hatches.iosRunnerCommand != null;
-  // ignore: unnecessary_null_comparison
-  final hasMacosScreenshot = hatches.macosDesktopScreenshot != null;
-
-  return switch (capability) {
-    BackendCapabilityName.androidShell => hasAndroidShell,
-    BackendCapabilityName.iosRunnerCommand => hasIosRunner,
-    BackendCapabilityName.macosDesktopScreenshot => hasMacosScreenshot,
-  };
-}

@@ -11,9 +11,7 @@ export 'src/backend/backend.dart'
         Backend,
         BackendActionResult,
         BackendCommandContext,
-        BackendEscapeHatches,
-        hasBackendCapability,
-        hasBackendEscapeHatch;
+        hasBackendCapability;
 export 'src/backend/capabilities.dart'
     show BackendCapabilityName, BackendCapabilitySet;
 export 'src/backend/device_info.dart'
@@ -80,9 +78,7 @@ export 'src/backend/options.dart'
         BackendScrollTarget,
         BackendScrollTargetPoint,
         BackendScrollTargetViewport,
-        BackendShellResult,
         BackendSnapshotAnalysis,
-        BackendSnapshotFreshness,
         BackendSnapshotOptions,
         BackendSnapshotResult,
         BackendSwipeOptions,
@@ -122,13 +118,9 @@ export 'src/runtime/agent_device.dart' show AgentDevice, DeviceSelector;
 export 'src/runtime/contract.dart'
     show
         CommandClock,
-        CommandPolicy,
         CommandSessionRecord,
         CommandSessionStore,
-        DiagnosticsSink,
-        SystemClock,
-        localCommandPolicy,
-        restrictedCommandPolicy;
+        SystemClock;
 export 'src/runtime/file_session_store.dart' show FileSessionStore;
 export 'src/runtime/paths.dart' show StatePaths, resolveStatePaths;
 export 'src/runtime/session_store.dart'
@@ -160,7 +152,6 @@ export 'src/snapshot/snapshot.dart'
     show
         Point,
         Rect,
-        ScreenshotOverlayRef,
         SnapshotNode,
         SnapshotState,
         SnapshotVisibility,
@@ -218,7 +209,6 @@ export 'src/utils/retry.dart'
         CancelToken,
         Deadline,
         RetryAttemptContext,
-        RetryOptions,
         RetryPolicy,
         RetryTelemetryEvent,
         TimeoutProfile,

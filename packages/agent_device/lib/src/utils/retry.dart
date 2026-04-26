@@ -40,23 +40,6 @@ class RetryPolicy {
   });
 }
 
-/// Options for retry behavior.
-class RetryOptions {
-  final int? attempts;
-  final int? baseDelayMs;
-  final int? maxDelayMs;
-  final double? jitter;
-  final bool Function(Object error, int attempt)? shouldRetry;
-
-  RetryOptions({
-    this.attempts,
-    this.baseDelayMs,
-    this.maxDelayMs,
-    this.jitter,
-    this.shouldRetry,
-  });
-}
-
 /// Telemetry event from a retry operation.
 class RetryTelemetryEvent {
   final String? phase;

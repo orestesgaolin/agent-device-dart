@@ -25,11 +25,6 @@ void main() {
       expect(backend.capabilities, isNull);
     });
 
-    test('has no escape hatches by default', () {
-      final backend = const AndroidBackend();
-      expect(backend.escapeHatches, isNull);
-    });
-
     test('every abstract method has an implementation (not abstract)', () {
       // This is a compile-time check: if any abstract method is not
       // overridden, this test file will not compile.

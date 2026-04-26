@@ -26,7 +26,6 @@ void main() {
       const backend = _MinimalBackend();
       expect(backend.platform, AgentDeviceBackendPlatform.android);
       expect(backend.capabilities, isNull);
-      expect(backend.escapeHatches, isNull);
     });
 
     test('unoverridden methods throw UNSUPPORTED_OPERATION', () async {

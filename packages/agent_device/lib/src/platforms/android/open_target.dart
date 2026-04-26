@@ -45,18 +45,6 @@ AndroidAppTargetKind classifyAndroidAppTarget(String target) {
   return AndroidAppTargetKind.package;
 }
 
-/// Returns true if [value] looks like an Android package name.
-bool looksLikeAndroidPackageName(String value) {
-  return _looksLikeAndroidPackageName(value);
-}
-
 bool _looksLikeAndroidPackageName(String value) {
   return _androidPackageNamePattern.hasMatch(value);
-}
-
-/// Formats an error message for when a non-package target is provided where
-/// an installed package is required.
-String formatAndroidInstalledPackageRequiredMessage(String target) {
-  return 'Android runtime hints require an installed package name, not "$target". '
-      'Install or reinstall the app first, then relaunch by package.';
 }

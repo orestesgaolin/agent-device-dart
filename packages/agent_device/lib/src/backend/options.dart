@@ -412,28 +412,6 @@ class BackendSnapshotAnalysis {
   };
 }
 
-/// Freshness information from snapshot.
-class BackendSnapshotFreshness {
-  final String action;
-  final int retryCount;
-  final bool staleAfterRetries;
-  final String? reason;
-
-  const BackendSnapshotFreshness({
-    required this.action,
-    required this.retryCount,
-    required this.staleAfterRetries,
-    this.reason,
-  });
-
-  Map<String, Object?> toJson() => <String, Object?>{
-    'action': action,
-    'retryCount': retryCount,
-    'staleAfterRetries': staleAfterRetries,
-    if (reason != null) 'reason': reason,
-  };
-}
-
 /// Result of a snapshot operation.
 class BackendSnapshotResult {
   final List<Object?>? nodes;
@@ -441,7 +419,6 @@ class BackendSnapshotResult {
   final String? backend;
   final Object? snapshot;
   final BackendSnapshotAnalysis? analysis;
-  final BackendSnapshotFreshness? freshness;
   final List<String>? warnings;
   final String? appName;
   final String? appBundleId;
@@ -452,7 +429,6 @@ class BackendSnapshotResult {
     this.backend,
     this.snapshot,
     this.analysis,
-    this.freshness,
     this.warnings,
     this.appName,
     this.appBundleId,
@@ -464,35 +440,12 @@ class BackendSnapshotResult {
     if (backend != null) 'backend': backend,
     if (snapshot != null) 'snapshot': snapshot,
     if (analysis != null) 'analysis': analysis!.toJson(),
-    if (freshness != null) 'freshness': freshness!.toJson(),
     if (warnings != null) 'warnings': warnings,
     if (appName != null) 'appName': appName,
     if (appBundleId != null) 'appBundleId': appBundleId,
   };
 }
 
-// ============================================================================
-// Shell and Recording
-// ============================================================================
-
-/// Result of a shell command execution.
-class BackendShellResult {
-  final int exitCode;
-  final String stdout;
-  final String stderr;
-
-  const BackendShellResult({
-    required this.exitCode,
-    required this.stdout,
-    required this.stderr,
-  });
-
-  Map<String, Object?> toJson() => {
-    'exitCode': exitCode,
-    'stdout': stdout,
-    'stderr': stderr,
-  };
-}
 
 /// A command to run via runner.
 class BackendRunnerCommand {

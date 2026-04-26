@@ -2,6 +2,7 @@
 
 import 'package:path/path.dart' as p;
 
+import '../../core/open_target.dart' show isDeepLinkTarget;
 import '../../utils/errors.dart';
 import '../../utils/exec.dart';
 import 'adb.dart';
@@ -272,7 +273,7 @@ Future<void> openAndroidApp(
   await waitForAndroidBoot(deviceId);
 
   final deepLinkTarget = app.trim();
-  if (_isDeepLinkTarget(deepLinkTarget)) {
+  if (isDeepLinkTarget(deepLinkTarget)) {
     if (activity != null) {
       throw AppError(
         AppErrorCodes.invalidArgs,
@@ -403,11 +404,6 @@ Future<void> openAndroidApp(
       component,
     ]),
   );
-}
-
-/// Check if a string looks like a deep link (URL).
-bool _isDeepLinkTarget(String target) {
-  return target.contains('://');
 }
 
 /// Build an error for a missing/not-installed package.

@@ -256,32 +256,6 @@ class SnapshotVisibility {
   };
 }
 
-/// Reference to a node on a screenshot overlay.
-class ScreenshotOverlayRef {
-  final String ref;
-  final String? label;
-  final Rect rect;
-  final Rect overlayRect;
-  final Point center;
-
-  const ScreenshotOverlayRef({
-    required this.ref,
-    this.label,
-    required this.rect,
-    required this.overlayRect,
-    required this.center,
-  });
-
-  /// Convert to a JSON map.
-  Map<String, Object?> toJson() => {
-    'ref': ref,
-    if (label != null) 'label': label,
-    'rect': rect.toJson(),
-    'overlayRect': overlayRect.toJson(),
-    'center': center.toJson(),
-  };
-}
-
 /// Attach reference strings to raw nodes.
 List<SnapshotNode> attachRefs(List<RawSnapshotNode> nodes) {
   return nodes.asMap().entries.map((entry) {

@@ -50,9 +50,7 @@ class DeviceSelector {
 class AgentDevice {
   final Backend backend;
   final CommandSessionStore sessions;
-  final CommandPolicy policy;
   final CommandClock clock;
-  final DiagnosticsSink? diagnostics;
 
   /// Name of the session this façade is bound to (default: 'default').
   final String sessionName;
@@ -63,11 +61,9 @@ class AgentDevice {
   AgentDevice._({
     required this.backend,
     required this.sessions,
-    required this.policy,
     required this.clock,
     required this.sessionName,
     required this.device,
-    this.diagnostics,
   });
 
   /// Open a session, resolving one matching device via
@@ -84,9 +80,7 @@ class AgentDevice {
     DeviceSelector selector = const DeviceSelector(),
     String sessionName = 'default',
     CommandSessionStore? sessions,
-    CommandPolicy policy = localCommandPolicy,
     CommandClock clock = const SystemClock(),
-    DiagnosticsSink? diagnostics,
   }) async {
     final store = sessions ?? createMemorySessionStore();
     final devices = await backend.listDevices(
@@ -124,11 +118,9 @@ class AgentDevice {
     return AgentDevice._(
       backend: backend,
       sessions: store,
-      policy: policy,
       clock: clock,
       sessionName: sessionName,
       device: picked,
-      diagnostics: diagnostics,
     );
   }
 

@@ -8,9 +8,7 @@ export 'backend.dart'
         Backend,
         BackendActionResult,
         BackendCommandContext,
-        BackendEscapeHatches,
-        hasBackendCapability,
-        hasBackendEscapeHatch;
+        hasBackendCapability;
 export 'capabilities.dart' show BackendCapabilityName, BackendCapabilitySet;
 export 'device_info.dart'
     show
@@ -78,9 +76,7 @@ export 'options.dart'
         BackendScrollTarget,
         BackendScrollTargetPoint,
         BackendScrollTargetViewport,
-        BackendShellResult,
         BackendSnapshotAnalysis,
-        BackendSnapshotFreshness,
         BackendSnapshotOptions,
         BackendSnapshotResult,
         BackendSwipeOptions,
