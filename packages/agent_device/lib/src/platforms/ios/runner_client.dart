@@ -201,6 +201,69 @@ class IosRunnerClient {
     return matching;
   }
 
+  /// Try [findXctestrun]; if the products dir doesn't exist, auto-build
+  /// the runner via `xcodebuild build-for-testing` then retry. Device
+  /// builds require a provisioning profile and are NOT auto-built — they
+  /// still surface the manual hint.
+  static Future<File> _ensureXctestrun(
+    String productsDir, {
+    IosRunnerKind kind = IosRunnerKind.simulator,
+  }) async {
+    try {
+      return findXctestrun(productsDir, kind: kind);
+    } on AppError {
+      if (kind == IosRunnerKind.device) rethrow;
+    }
+    final projectRoot = _findProjectRoot();
+    if (projectRoot == null) {
+      return findXctestrun(productsDir, kind: kind);
+    }
+    final projectPath = p.join(
+      projectRoot,
+      'ios-runner',
+      'AgentDeviceRunner',
+      'AgentDeviceRunner.xcodeproj',
+    );
+    if (!Directory(projectPath).existsSync()) {
+      return findXctestrun(productsDir, kind: kind);
+    }
+    final derivedDataPath = p.join(projectRoot, 'ios-runner', 'build');
+    _debugLog('[runner] auto-building iOS runner…');
+    final result = await runCmd('xcodebuild', [
+      'build-for-testing',
+      '-project', projectPath,
+      '-scheme', 'AgentDeviceRunner',
+      '-destination', 'generic/platform=iOS Simulator',
+      '-derivedDataPath', derivedDataPath,
+      '-quiet',
+    ], const ExecOptions(allowFailure: true));
+    if (result.exitCode != 0) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'Auto-build of iOS runner failed (exit ${result.exitCode}).',
+        details: {
+          'stderr': result.stderr,
+          'hint': 'Check Xcode installation and try building manually.',
+        },
+      );
+    }
+    _debugLog('[runner] auto-build complete');
+    return findXctestrun(productsDir, kind: kind);
+  }
+
+  static String? _findProjectRoot() {
+    var dir = Directory.current;
+    for (var i = 0; i < 8; i++) {
+      if (Directory(p.join(dir.path, 'ios-runner')).existsSync()) {
+        return dir.path;
+      }
+      final parent = dir.parent;
+      if (parent.path == dir.path) break;
+      dir = parent;
+    }
+    return null;
+  }
+
   /// Prepare a patched copy of [template] under `/tmp/` with the
   /// `__TESTROOT__` placeholder resolved to [productsDir] and the given
   /// [envVars] merged into the test target's `EnvironmentVariables`.
@@ -270,7 +333,7 @@ class IosRunnerClient {
       override: buildProductsDirOverride,
       kind: kind,
     );
-    final template = findXctestrun(productsDir, kind: kind);
+    final template = await _ensureXctestrun(productsDir, kind: kind);
     final port = await pickFreePort();
     final xctestrunPath = await prepareXctestrunWithEnv(
       template: template,
