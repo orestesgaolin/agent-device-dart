@@ -226,7 +226,7 @@ class _RecordingBackend extends Backend {
     BackendDeviceFilter? filter,
   ]) async =>
       [
-        BackendDeviceInfo(
+        const BackendDeviceInfo(
           id: 'mock-serial',
           name: 'mock',
           platform: AgentDeviceBackendPlatform.android,

@@ -37,6 +37,33 @@ class PressCommand extends AgentDeviceCommand {
   }
 }
 
+/// `click` — alias for `press`. Accepts the same selector/ref/x-y forms.
+class ClickCommand extends AgentDeviceCommand {
+  @override
+  String get name => 'click';
+
+  @override
+  String get description =>
+      'Tap a node matched by a selector expression or @ref.';
+
+  @override
+  Future<int> run() async {
+    final target = InteractionTarget.parseArgs(positionals);
+    if (target == null) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'press requires <selector | @ref | x y>.',
+      );
+    }
+    final device = await openAgentDevice();
+    await device.tapTarget(target);
+    emitResult({
+      'pressed': _targetLabel(target),
+    }, humanFormat: (_) => 'pressed ${_targetLabel(target)}');
+    return 0;
+  }
+}
+
 /// `find` — search the current snapshot for nodes whose visible text
 /// contains a substring.
 class FindCommand extends AgentDeviceCommand {

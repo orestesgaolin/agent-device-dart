@@ -1,8 +1,11 @@
 // Simple action commands: open, close, tap, fill, type, focus, back, home,
-// app-switcher, rotate, press-key, clipboard, appstate, apps. Each one
-// constructs an AgentDevice, performs a single backend call, and prints
-// a short acknowledgement in human mode.
+// app-switcher, rotate, press-key, clipboard, appstate, apps, settings,
+// boot, keyboard, trigger-app-event. Each one constructs an AgentDevice,
+// performs a single backend call, and prints a short acknowledgement in
+// human mode.
 library;
+
+import 'dart:convert';
 
 import 'package:agent_device/src/backend/backend.dart';
 import 'package:agent_device/src/backend/device_info.dart';
@@ -531,3 +534,148 @@ class ClipboardCommand extends AgentDeviceCommand {
 /// Quote a string for human-mode output so escapes are visible.
 String jsonish(String s) =>
     '"${s.replaceAll(r'\', r'\\').replaceAll('"', r'\"')}"';
+
+/// `settings [target]` — open platform settings, optionally scoped to a
+/// specific settings pane (e.g. `wifi`, `bluetooth`, `privacy`).
+class SettingsCommand extends AgentDeviceCommand {
+  @override
+  String get name => 'settings';
+
+  @override
+  String get description =>
+      'Open platform settings (optionally scoped to a target pane).';
+
+  @override
+  Future<int> run() async {
+    final target = positionals.isEmpty ? null : positionals.first;
+    final device = await openAgentDevice();
+    await device.openSettings(target);
+    emitResult(
+      {'opened': 'settings', 'target': ?target},
+      humanFormat: (_) =>
+          target == null ? 'opened settings' : 'opened settings: $target',
+    );
+    return 0;
+  }
+}
+
+/// `boot [name]` — boot a device or simulator. When [name] is omitted the
+/// device selected by the global `--serial` / `--device` / `--platform`
+/// flags is booted.
+class BootCommand extends AgentDeviceCommand {
+  @override
+  String get name => 'boot';
+
+  @override
+  String get description =>
+      'Boot a device or simulator. Optionally specify a device name.';
+
+  @override
+  Future<int> run() async {
+    final deviceName = positionals.isEmpty ? null : positionals.first;
+    final device = await openAgentDevice();
+    final result = await device.bootDevice(name: deviceName);
+    emitResult(
+      {'booted': true, 'name': ?deviceName, 'result': result},
+      humanFormat: (_) =>
+          deviceName == null ? 'booted device' : 'booted: $deviceName',
+    );
+    return 0;
+  }
+}
+
+/// `keyboard <action>` — control the software keyboard.
+/// [action] is one of: `status` | `get` | `dismiss` | `hide`.
+class KeyboardCommand extends AgentDeviceCommand {
+  @override
+  String get name => 'keyboard';
+
+  @override
+  String get description =>
+      'Control the software keyboard (status | get | dismiss | hide).';
+
+  @override
+  Future<int> run() async {
+    if (positionals.isEmpty) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'keyboard requires an action: status | get | dismiss | hide.',
+      );
+    }
+    final action = positionals.first;
+    const validActions = {'status', 'get', 'dismiss', 'hide'};
+    if (!validActions.contains(action)) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'Unknown keyboard action "$action". '
+        'Expected: status | get | dismiss | hide.',
+        details: {'action': action},
+      );
+    }
+    final device = await openAgentDevice();
+    final result = await device.setKeyboard(action);
+    emitResult(
+      result,
+      humanFormat: (_) => 'keyboard $action',
+    );
+    return 0;
+  }
+}
+
+/// `trigger-app-event <name> [--payload <json>]` — trigger a named event
+/// on the running app via the runner bridge.
+class TriggerAppEventCommand extends AgentDeviceCommand {
+  TriggerAppEventCommand() {
+    argParser.addOption(
+      'payload',
+      help: 'Optional JSON object payload to pass with the event.',
+      valueHelp: 'JSON',
+    );
+  }
+
+  @override
+  String get name => 'trigger-app-event';
+
+  @override
+  String get description =>
+      'Trigger a named event on the running app (via the runner bridge). '
+      'Use --payload to pass a JSON object.';
+
+  @override
+  Future<int> run() async {
+    if (positionals.isEmpty) {
+      throw AppError(
+        AppErrorCodes.invalidArgs,
+        'trigger-app-event requires an event name.',
+      );
+    }
+    final eventName = positionals.first;
+    final payloadRaw = argResults?['payload'] as String?;
+    Map<String, Object?>? payload;
+    if (payloadRaw != null) {
+      Object? decoded;
+      try {
+        decoded = jsonDecode(payloadRaw);
+      } on FormatException {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          '--payload must be valid JSON.',
+        );
+      }
+      if (decoded is! Map) {
+        throw AppError(
+          AppErrorCodes.invalidArgs,
+          '--payload must be a JSON object.',
+        );
+      }
+      payload = {for (final e in decoded.entries) e.key.toString(): e.value};
+    }
+    final device = await openAgentDevice();
+    final result = await device.triggerAppEvent(eventName, payload: payload);
+    emitResult(
+      {'event': eventName, 'payload': ?payload, 'result': result},
+      humanFormat: (_) => 'triggered app event: $eventName',
+    );
+    return 0;
+  }
+}
