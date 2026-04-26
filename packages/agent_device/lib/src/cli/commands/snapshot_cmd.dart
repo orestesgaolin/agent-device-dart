@@ -78,10 +78,14 @@ class SnapshotCommand extends AgentDeviceCommand {
         for (final n in nodes) {
           final indent = '  ' * (n.depth ?? 0);
           final tag = _humanType(n.type ?? n.role ?? '?');
-          final text = n.label ?? n.value ?? n.identifier ?? '';
-          buf.writeln(
-            '$indent@${n.ref} [$tag]${text.isNotEmpty ? ' "$text"' : ''}',
-          );
+          final text = n.label ?? n.value ?? '';
+          final id = n.identifier;
+          final parts = [
+            '$indent@${n.ref} [$tag]',
+            if (text.isNotEmpty) '"$text"',
+            if (id != null && id.isNotEmpty && id != text) 'id=$id',
+          ];
+          buf.writeln(parts.join(' '));
         }
         return buf.toString().trimRight();
       },
