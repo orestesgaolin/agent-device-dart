@@ -6,14 +6,14 @@ void main() {
   group('evaluateIsPredicate — visible/hidden', () {
     test('node inside window viewport is visible', () {
       final nodes = [
-        const SnapshotNode(
+        SnapshotNode(
           index: 0,
           ref: 'e1',
           type: 'Window',
           depth: 0,
           rect: Rect(x: 0, y: 0, width: 390, height: 844),
         ),
-        const SnapshotNode(
+        SnapshotNode(
           index: 1,
           ref: 'e2',
           type: 'Button',
@@ -35,14 +35,14 @@ void main() {
 
     test('node below window viewport is hidden', () {
       final nodes = [
-        const SnapshotNode(
+        SnapshotNode(
           index: 0,
           ref: 'e1',
           type: 'Window',
           depth: 0,
           rect: Rect(x: 0, y: 0, width: 390, height: 844),
         ),
-        const SnapshotNode(
+        SnapshotNode(
           index: 1,
           ref: 'e2',
           type: 'Button',
@@ -64,14 +64,14 @@ void main() {
 
     test('hidden predicate is inverse of visible', () {
       final nodes = [
-        const SnapshotNode(
+        SnapshotNode(
           index: 0,
           ref: 'e1',
           type: 'Window',
           depth: 0,
           rect: Rect(x: 0, y: 0, width: 390, height: 844),
         ),
-        const SnapshotNode(
+        SnapshotNode(
           index: 1,
           ref: 'e2',
           type: 'Button',
@@ -95,14 +95,14 @@ void main() {
       'scroll container clips children — inside visible, outside hidden',
       () {
         final nodes = [
-          const SnapshotNode(
+          SnapshotNode(
             index: 0,
             ref: 'e1',
             type: 'Window',
             depth: 0,
             rect: Rect(x: 0, y: 0, width: 390, height: 844),
           ),
-          const SnapshotNode(
+          SnapshotNode(
             index: 1,
             ref: 'e2',
             type: 'android.widget.ScrollView',
@@ -110,7 +110,7 @@ void main() {
             parentIndex: 0,
             rect: Rect(x: 0, y: 120, width: 390, height: 500),
           ),
-          const SnapshotNode(
+          SnapshotNode(
             index: 2,
             ref: 'e3',
             type: 'android.widget.TextView',
@@ -119,7 +119,7 @@ void main() {
             parentIndex: 1,
             rect: Rect(x: 20, y: 200, width: 200, height: 30),
           ),
-          const SnapshotNode(
+          SnapshotNode(
             index: 3,
             ref: 'e4',
             type: 'android.widget.TextView',
@@ -150,14 +150,14 @@ void main() {
 
     test('node at exact viewport boundary is visible (1px overlap)', () {
       final nodes = [
-        const SnapshotNode(
+        SnapshotNode(
           index: 0,
           ref: 'e1',
           type: 'Window',
           depth: 0,
           rect: Rect(x: 0, y: 0, width: 390, height: 844),
         ),
-        const SnapshotNode(
+        SnapshotNode(
           index: 1,
           ref: 'e2',
           type: 'Button',
@@ -179,14 +179,14 @@ void main() {
 
     test('node just outside viewport boundary is hidden', () {
       final nodes = [
-        const SnapshotNode(
+        SnapshotNode(
           index: 0,
           ref: 'e1',
           type: 'Window',
           depth: 0,
           rect: Rect(x: 0, y: 0, width: 390, height: 844),
         ),
-        const SnapshotNode(
+        SnapshotNode(
           index: 1,
           ref: 'e2',
           type: 'Button',
@@ -208,14 +208,14 @@ void main() {
 
     test('node with no rect is treated as visible', () {
       final nodes = [
-        const SnapshotNode(
+        SnapshotNode(
           index: 0,
           ref: 'e1',
           type: 'Window',
           depth: 0,
           rect: Rect(x: 0, y: 0, width: 390, height: 844),
         ),
-        const SnapshotNode(
+        SnapshotNode(
           index: 1,
           ref: 'e2',
           type: 'Other',
@@ -234,14 +234,14 @@ void main() {
 
     test('hittable node outside viewport is still hidden (geometry wins)', () {
       final nodes = [
-        const SnapshotNode(
+        SnapshotNode(
           index: 0,
           ref: 'e1',
           type: 'Window',
           depth: 0,
           rect: Rect(x: 0, y: 0, width: 390, height: 844),
         ),
-        const SnapshotNode(
+        SnapshotNode(
           index: 1,
           ref: 'e2',
           type: 'Button',
@@ -261,7 +261,7 @@ void main() {
     });
 
     test('exists predicate passes for any resolved node', () {
-      final node = const SnapshotNode(index: 0, ref: 'e1', type: 'Button');
+      final node = SnapshotNode(index: 0, ref: 'e1', type: 'Button');
       final result = evaluateIsPredicate(
         predicate: 'exists',
         node: node,
@@ -272,7 +272,7 @@ void main() {
     });
 
     test('text predicate compares exact text', () {
-      final node = const SnapshotNode(
+      final node = SnapshotNode(
         index: 0,
         ref: 'e1',
         type: 'Button',

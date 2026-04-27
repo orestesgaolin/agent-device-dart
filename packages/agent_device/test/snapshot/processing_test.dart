@@ -6,8 +6,8 @@ void main() {
   group('processing.dart', () {
     test('findNodeByLabel performs case-insensitive substring match', () {
       final nodes = [
-        const SnapshotNode(index: 0, ref: 'e1', label: 'Login Button'),
-        const SnapshotNode(index: 1, ref: 'e2', label: 'Password Field'),
+        SnapshotNode(index: 0, ref: 'e1', label: 'Login Button'),
+        SnapshotNode(index: 1, ref: 'e2', label: 'Password Field'),
       ];
 
       expect(findNodeByLabel(nodes, 'login')?.ref, equals('e1'));
@@ -17,8 +17,8 @@ void main() {
 
     test('resolveRefLabel prefers meaningful labels', () {
       final nodes = [
-        const SnapshotNode(index: 0, ref: 'e1', label: 'Submit'),
-        const SnapshotNode(index: 1, ref: 'e2'),
+        SnapshotNode(index: 0, ref: 'e1', label: 'Submit'),
+        SnapshotNode(index: 1, ref: 'e2'),
       ];
 
       expect(resolveRefLabel(nodes[0], nodes), equals('Submit'));
@@ -27,9 +27,9 @@ void main() {
 
     test('pruneGroupNodes removes empty group nodes', () {
       final nodes = [
-        const RawSnapshotNode(index: 0, type: 'window', depth: 0),
-        const RawSnapshotNode(index: 1, type: 'group', depth: 1),
-        const RawSnapshotNode(
+        RawSnapshotNode(index: 0, type: 'window', depth: 0),
+        RawSnapshotNode(index: 1, type: 'group', depth: 1),
+        RawSnapshotNode(
           index: 2,
           type: 'button',
           label: 'Click',
@@ -58,15 +58,15 @@ void main() {
 
     test('findNearestHittableAncestor walks parent chain', () {
       final nodes = [
-        const SnapshotNode(index: 0, ref: 'e1', type: 'window', hittable: true),
-        const SnapshotNode(
+        SnapshotNode(index: 0, ref: 'e1', type: 'window', hittable: true),
+        SnapshotNode(
           index: 1,
           ref: 'e2',
           type: 'button',
           parentIndex: 0,
           hittable: false,
         ),
-        const SnapshotNode(
+        SnapshotNode(
           index: 2,
           ref: 'e3',
           type: 'text',
@@ -80,7 +80,7 @@ void main() {
     });
 
     test('extractNodeText gets first non-empty text field', () {
-      final node = const SnapshotNode(
+      final node = SnapshotNode(
         index: 0,
         ref: 'e1',
         label: 'Label',
@@ -88,14 +88,14 @@ void main() {
       );
       expect(extractNodeText(node), equals('Label'));
 
-      final withoutLabel = const SnapshotNode(
+      final withoutLabel = SnapshotNode(
         index: 1,
         ref: 'e2',
         value: 'Value',
       );
       expect(extractNodeText(withoutLabel), equals('Value'));
 
-      final empty = const SnapshotNode(index: 2, ref: 'e3');
+      final empty = SnapshotNode(index: 2, ref: 'e3');
       expect(extractNodeText(empty), equals(''));
     });
   });

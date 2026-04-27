@@ -12,7 +12,7 @@ void main() {
     });
 
     test('displayLabel extracts meaningful text', () {
-      final button = const SnapshotNode(
+      final button = SnapshotNode(
         index: 0,
         ref: 'e1',
         type: 'button',
@@ -20,7 +20,7 @@ void main() {
       );
       expect(displayLabel(button, 'button'), equals('Submit'));
 
-      final textField = const SnapshotNode(
+      final textField = SnapshotNode(
         index: 1,
         ref: 'e2',
         type: 'text-field',
@@ -31,15 +31,15 @@ void main() {
 
     test('buildSnapshotDisplayLines filters and indents nodes', () {
       final nodes = [
-        const SnapshotNode(index: 0, ref: 'e1', type: 'window', depth: 0),
-        const SnapshotNode(
+        SnapshotNode(index: 0, ref: 'e1', type: 'window', depth: 0),
+        SnapshotNode(
           index: 1,
           ref: 'e2',
           type: 'button',
           label: 'Click me',
           depth: 1,
         ),
-        const SnapshotNode(index: 2, ref: 'e3', type: 'group', depth: 2),
+        SnapshotNode(index: 2, ref: 'e3', type: 'group', depth: 2),
       ];
 
       final lines = buildSnapshotDisplayLinesPublic(nodes);
@@ -49,7 +49,7 @@ void main() {
     });
 
     test('formatSnapshotLine includes metadata', () {
-      final node = const SnapshotNode(
+      final node = SnapshotNode(
         index: 0,
         ref: 'e1',
         type: 'button',
@@ -70,7 +70,7 @@ void main() {
     });
 
     test('formatSnapshotLine handles editable fields', () {
-      final node = const SnapshotNode(
+      final node = SnapshotNode(
         index: 0,
         ref: 'e1',
         type: 'text-field',

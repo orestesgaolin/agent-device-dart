@@ -72,10 +72,10 @@ class RawSnapshotNode {
   final String? appName;
   final String? windowTitle;
   final String? surface;
-  final bool? hiddenContentAbove;
-  final bool? hiddenContentBelow;
+  bool? hiddenContentAbove;
+  bool? hiddenContentBelow;
 
-  const RawSnapshotNode({
+  RawSnapshotNode({
     required this.index,
     this.type,
     this.role,
@@ -138,7 +138,7 @@ class HiddenContentHint {
 class SnapshotNode extends RawSnapshotNode {
   final String ref;
 
-  const SnapshotNode({
+  SnapshotNode({
     required super.index,
     required this.ref,
     super.type,

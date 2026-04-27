@@ -6,14 +6,14 @@ void main() {
   group('tree.dart', () {
     test('normalizeSnapshotTree repairs parent indices', () {
       final nodes = [
-        const RawSnapshotNode(index: 10, type: 'window', depth: 0),
-        const RawSnapshotNode(
+        RawSnapshotNode(index: 10, type: 'window', depth: 0),
+        RawSnapshotNode(
           index: 20,
           type: 'button',
           depth: 1,
           parentIndex: 10,
         ),
-        const RawSnapshotNode(
+        RawSnapshotNode(
           index: 30,
           type: 'text',
           depth: 2,
@@ -32,8 +32,8 @@ void main() {
 
     test('buildSnapshotNodeMap creates lookup map', () {
       final nodes = [
-        const SnapshotNode(index: 5, ref: 'e1', type: 'button'),
-        const SnapshotNode(index: 10, ref: 'e2', type: 'text'),
+        SnapshotNode(index: 5, ref: 'e1', type: 'button'),
+        SnapshotNode(index: 10, ref: 'e2', type: 'text'),
       ];
 
       final map = buildSnapshotNodeMap(nodes);
@@ -43,28 +43,28 @@ void main() {
     });
 
     test('displayNodeLabel extracts meaningful text', () {
-      final withLabel = const SnapshotNode(
+      final withLabel = SnapshotNode(
         index: 0,
         ref: 'e1',
         label: 'Click me',
       );
       expect(displayNodeLabel(withLabel), equals('Click me'));
 
-      final withValue = const SnapshotNode(
+      final withValue = SnapshotNode(
         index: 1,
         ref: 'e2',
         value: 'Input text',
       );
       expect(displayNodeLabel(withValue), equals('Input text'));
 
-      final withIdentifier = const SnapshotNode(
+      final withIdentifier = SnapshotNode(
         index: 2,
         ref: 'e3',
         identifier: 'com.example:id/button',
       );
       expect(displayNodeLabel(withIdentifier), equals('com.example:id/button'));
 
-      final empty = const SnapshotNode(index: 3, ref: 'e4');
+      final empty = SnapshotNode(index: 3, ref: 'e4');
       expect(displayNodeLabel(empty), equals(''));
     });
   });

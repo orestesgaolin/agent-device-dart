@@ -73,7 +73,7 @@ void main() {
     test('is predicate "exists" passes when node is resolved', () {
       // Regression: phase 1 is_predicates.dart had no `case 'exists'` —
       // always returned pass=false. Verified against a minimal snapshot.
-      const node = SnapshotNode(
+      final node = SnapshotNode(
         index: 0,
         ref: 'e0',
         type: 'android.widget.Button',
@@ -97,7 +97,7 @@ void main() {
       final result = evaluateIsPredicate(
         predicate: 'exists',
         node: node,
-        nodes: const [node],
+        nodes: [node],
         platform: 'android',
       );
       expect(result.pass, isTrue);

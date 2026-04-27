@@ -9,7 +9,7 @@ import 'package:test/test.dart';
 
 void main() {
   group('matchesSelector', () {
-    final testNode = const SnapshotNode(
+    final testNode = SnapshotNode(
       index: 1,
       ref: 'e1',
       type: 'UIButton',
@@ -67,12 +67,12 @@ void main() {
 
   group('isNodeVisible', () {
     test('returns true for hittable node', () {
-      final node = const SnapshotNode(index: 1, ref: 'e1', hittable: true);
+      final node = SnapshotNode(index: 1, ref: 'e1', hittable: true);
       expect(isNodeVisible(node), true);
     });
 
     test('returns true for node with positive rect', () {
-      final node = const SnapshotNode(
+      final node = SnapshotNode(
         index: 1,
         ref: 'e1',
         rect: Rect(x: 0, y: 0, width: 100, height: 50),
@@ -81,12 +81,12 @@ void main() {
     });
 
     test('returns false for node without rect', () {
-      final node = const SnapshotNode(index: 1, ref: 'e1');
+      final node = SnapshotNode(index: 1, ref: 'e1');
       expect(isNodeVisible(node), false);
     });
 
     test('returns false for node with zero-size rect', () {
-      final node = const SnapshotNode(
+      final node = SnapshotNode(
         index: 1,
         ref: 'e1',
         rect: Rect(x: 0, y: 0, width: 0, height: 50),
@@ -97,7 +97,7 @@ void main() {
 
   group('isNodeEditable', () {
     test('returns true for fillable type on iOS', () {
-      final node = const SnapshotNode(
+      final node = SnapshotNode(
         index: 1,
         ref: 'e1',
         type: 'UITextField',
@@ -107,7 +107,7 @@ void main() {
     });
 
     test('returns false when disabled', () {
-      final node = const SnapshotNode(
+      final node = SnapshotNode(
         index: 1,
         ref: 'e1',
         type: 'UITextField',
@@ -117,7 +117,7 @@ void main() {
     });
 
     test('returns true for EditText on Android', () {
-      final node = const SnapshotNode(
+      final node = SnapshotNode(
         index: 1,
         ref: 'e1',
         type: 'android.widget.EditText',

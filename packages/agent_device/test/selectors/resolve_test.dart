@@ -10,7 +10,7 @@ import 'package:test/test.dart';
 void main() {
   group('resolveSelectorChain', () {
     final nodes = [
-      const SnapshotNode(
+      SnapshotNode(
         index: 1,
         ref: 'e1',
         type: 'UIButton',
@@ -20,7 +20,7 @@ void main() {
         depth: 1,
         rect: Rect(x: 10, y: 20, width: 50, height: 30),
       ),
-      const SnapshotNode(
+      SnapshotNode(
         index: 2,
         ref: 'e2',
         type: 'UIButton',
@@ -104,7 +104,7 @@ void main() {
 
   group('findSelectorChainMatch', () {
     final nodes = [
-      const SnapshotNode(
+      SnapshotNode(
         index: 1,
         ref: 'e1',
         type: 'UIButton',

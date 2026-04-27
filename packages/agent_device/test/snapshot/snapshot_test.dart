@@ -16,8 +16,8 @@ void main() {
 
     test('attachRefs assigns sequential ref strings', () {
       final nodes = [
-        const RawSnapshotNode(index: 0, type: 'button', label: 'OK'),
-        const RawSnapshotNode(index: 1, type: 'text', label: 'Title'),
+        RawSnapshotNode(index: 0, type: 'button', label: 'OK'),
+        RawSnapshotNode(index: 1, type: 'text', label: 'Title'),
       ];
 
       final withRefs = attachRefs(nodes);
@@ -35,8 +35,8 @@ void main() {
 
     test('findNodeByRef returns node by reference', () {
       final nodes = [
-        const SnapshotNode(index: 0, ref: 'e1', label: 'First'),
-        const SnapshotNode(index: 1, ref: 'e2', label: 'Second'),
+        SnapshotNode(index: 0, ref: 'e1', label: 'First'),
+        SnapshotNode(index: 1, ref: 'e2', label: 'Second'),
       ];
 
       expect(findNodeByRef(nodes, 'e1')?.label, equals('First'));

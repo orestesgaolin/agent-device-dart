@@ -6,12 +6,12 @@ void main() {
   group('diff.dart', () {
     test('buildSnapshotDiff detects additions', () {
       final previous = [
-        const SnapshotNode(index: 0, ref: 'e1', type: 'button', label: 'A'),
+        SnapshotNode(index: 0, ref: 'e1', type: 'button', label: 'A'),
       ];
 
       final current = [
-        const SnapshotNode(index: 0, ref: 'e1', type: 'button', label: 'A'),
-        const SnapshotNode(index: 1, ref: 'e2', type: 'button', label: 'B'),
+        SnapshotNode(index: 0, ref: 'e1', type: 'button', label: 'A'),
+        SnapshotNode(index: 1, ref: 'e2', type: 'button', label: 'B'),
       ];
 
       final result = buildSnapshotDiff(previous, current);
@@ -22,12 +22,12 @@ void main() {
 
     test('buildSnapshotDiff detects removals', () {
       final previous = [
-        const SnapshotNode(index: 0, ref: 'e1', type: 'button', label: 'A'),
-        const SnapshotNode(index: 1, ref: 'e2', type: 'button', label: 'B'),
+        SnapshotNode(index: 0, ref: 'e1', type: 'button', label: 'A'),
+        SnapshotNode(index: 1, ref: 'e2', type: 'button', label: 'B'),
       ];
 
       final current = [
-        const SnapshotNode(index: 0, ref: 'e1', type: 'button', label: 'A'),
+        SnapshotNode(index: 0, ref: 'e1', type: 'button', label: 'A'),
       ];
 
       final result = buildSnapshotDiff(previous, current);
@@ -37,7 +37,7 @@ void main() {
 
     test('buildSnapshotDiff handles unchanged', () {
       final nodes = [
-        const SnapshotNode(index: 0, ref: 'e1', type: 'button', label: 'A'),
+        SnapshotNode(index: 0, ref: 'e1', type: 'button', label: 'A'),
       ];
 
       final result = buildSnapshotDiff(nodes, nodes);
@@ -70,8 +70,8 @@ void main() {
 
     test('countSnapshotComparableLines counts lines', () {
       final nodes = [
-        const SnapshotNode(index: 0, ref: 'e1', type: 'button', label: 'A'),
-        const SnapshotNode(index: 1, ref: 'e2', type: 'text', label: 'B'),
+        SnapshotNode(index: 0, ref: 'e1', type: 'button', label: 'A'),
+        SnapshotNode(index: 1, ref: 'e2', type: 'text', label: 'B'),
       ];
 
       final count = countSnapshotComparableLines(nodes);

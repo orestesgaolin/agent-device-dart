@@ -616,7 +616,7 @@ class _HealBackend extends Backend {
   ) async {
     // One node whose id happens to be "stale-id" (matches the script's
     // selector). Heal will ask for a rebuild from this node and retry.
-    final node = const SnapshotNode(
+    final node = SnapshotNode(
       index: 0,
       ref: '@e0',
       identifier: 'stale-id',
@@ -649,7 +649,7 @@ class _SelectorBackend extends _RecordingBackend {
     BackendSnapshotOptions? options,
   ) async {
     _record('captureSnapshot', {'options': options});
-    return const BackendSnapshotResult(
+    return BackendSnapshotResult(
       nodes: [
         SnapshotNode(
           index: 0,
@@ -658,7 +658,7 @@ class _SelectorBackend extends _RecordingBackend {
           identifier: 'ready-status',
           type: 'Text',
           role: 'Text',
-          rect: Rect(x: 10, y: 10, width: 160, height: 32),
+          rect: const Rect(x: 10, y: 10, width: 160, height: 32),
           hittable: true,
         ),
       ],

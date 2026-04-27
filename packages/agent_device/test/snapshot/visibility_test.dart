@@ -6,8 +6,8 @@ void main() {
   group('visibility.dart', () {
     test('buildSnapshotVisibility handles raw snapshots', () {
       final nodes = [
-        const SnapshotNode(index: 0, ref: 'e1', type: 'button'),
-        const SnapshotNode(index: 1, ref: 'e2', type: 'text'),
+        SnapshotNode(index: 0, ref: 'e1', type: 'button'),
+        SnapshotNode(index: 1, ref: 'e2', type: 'text'),
       ];
 
       final visibility = buildSnapshotVisibility(
@@ -22,7 +22,7 @@ void main() {
     });
 
     test('buildSnapshotVisibility handles desktop backends', () {
-      final nodes = [const SnapshotNode(index: 0, ref: 'e1', type: 'button')];
+      final nodes = [SnapshotNode(index: 0, ref: 'e1', type: 'button')];
 
       final visibility = buildSnapshotVisibility(
         nodes: nodes,

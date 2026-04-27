@@ -8,7 +8,7 @@ void main() {
       'deriveAndroidScrollableContentHints returns empty map for no scrollables',
       () {
         final nodes = [
-          const RawSnapshotNode(
+          RawSnapshotNode(
             index: 0,
             type: 'Button',
             rect: Rect(x: 0, y: 0, width: 100, height: 50),
@@ -25,7 +25,7 @@ void main() {
       'deriveAndroidScrollableContentHints returns empty map for no activity dump',
       () {
         final nodes = [
-          const RawSnapshotNode(
+          RawSnapshotNode(
             index: 0,
             type: 'RecyclerView',
             rect: Rect(x: 0, y: 0, width: 100, height: 200),
@@ -91,7 +91,7 @@ void main() {
 
     test('deriveAndroidScrollableContentHints ignores nodes without rects', () {
       final nodes = [
-        const RawSnapshotNode(index: 0, type: 'ScrollView', rect: null),
+        RawSnapshotNode(index: 0, type: 'ScrollView', rect: null),
       ];
 
       final hints = deriveAndroidScrollableContentHints(nodes, '');
@@ -101,7 +101,7 @@ void main() {
 
     test('deriveAndroidScrollableContentHints handles empty view tree', () {
       final nodes = [
-        const RawSnapshotNode(
+        RawSnapshotNode(
           index: 0,
           type: 'ScrollView',
           rect: Rect(x: 0, y: 0, width: 100, height: 200),
@@ -119,7 +119,7 @@ void main() {
       'deriveAndroidScrollableContentHints produces HiddenContentHint objects',
       () {
         final nodes = [
-          const RawSnapshotNode(
+          RawSnapshotNode(
             index: 0,
             type: 'ScrollView',
             rect: Rect(x: 0, y: 0, width: 100, height: 200),
@@ -155,12 +155,12 @@ void main() {
 
     test('deriveAndroidScrollableContentHints preserves node indices', () {
       final nodes = [
-        const RawSnapshotNode(
+        RawSnapshotNode(
           index: 0,
           type: 'ScrollView',
           rect: Rect(x: 0, y: 0, width: 100, height: 200),
         ),
-        const RawSnapshotNode(
+        RawSnapshotNode(
           index: 1,
           type: 'ScrollView',
           rect: Rect(x: 0, y: 200, width: 100, height: 200),
@@ -176,17 +176,17 @@ void main() {
 
     test('deriveAndroidScrollableContentHints handles mixed node types', () {
       final nodes = [
-        const RawSnapshotNode(
+        RawSnapshotNode(
           index: 0,
           type: 'Button',
           rect: Rect(x: 0, y: 0, width: 100, height: 50),
         ),
-        const RawSnapshotNode(
+        RawSnapshotNode(
           index: 1,
           type: 'ScrollView',
           rect: Rect(x: 0, y: 50, width: 100, height: 150),
         ),
-        const RawSnapshotNode(
+        RawSnapshotNode(
           index: 2,
           type: 'TextView',
           rect: Rect(x: 10, y: 60, width: 80, height: 30),

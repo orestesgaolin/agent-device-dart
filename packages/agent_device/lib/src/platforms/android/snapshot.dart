@@ -3,6 +3,7 @@
 import '../../snapshot/snapshot.dart';
 import '../../utils/errors.dart';
 import '../../utils/exec.dart';
+import '../../utils/mobile_snapshot_semantics.dart';
 import '../../utils/retry.dart';
 import '../../utils/scrollable.dart';
 import 'adb.dart';
@@ -66,15 +67,14 @@ snapshotAndroid(
   );
 
   if (nativeHints.isEmpty) {
-    // TODO(port): resolved in Wave C
-    // const presentationHints = deriveMobileSnapshotHiddenContentHints(
-    //   attachRefs(fullSnapshot.nodes),
-    // );
-    // _applyHiddenContentHintsToInteractiveNodes(
-    //   presentationHints,
-    //   fullSnapshot,
-    //   interactiveSnapshot,
-    // );
+    final presentationHints = deriveMobileSnapshotHiddenContentHints(
+      attachRefs(fullSnapshot.nodes),
+    );
+    _applyHiddenContentHintsToInteractiveNodes(
+      presentationHints,
+      fullSnapshot,
+      interactiveSnapshot,
+    );
   }
 
   return (
@@ -327,38 +327,60 @@ Future<String?> _dumpActivityTop(String serial) async {
   }
 }
 
-/// Apply hidden content hints to all nodes.
+/// Apply hidden content hints to all nodes by index.
 ///
-/// TODO(port): apply `hint.hiddenContentAbove` / `hiddenContentBelow` once
-/// [RawSnapshotNode] supports mutation (copy-with pattern or mutable fields).
-/// The ported model is immutable — both hint flags flow through the builders
-/// at construction time instead. Keeping this function as a no-op shell so
-/// call-sites keep a stable seam.
+/// Iterates the hints map and writes each hint's flags onto the matching node.
+/// [RawSnapshotNode.hiddenContentAbove] and [RawSnapshotNode.hiddenContentBelow]
+/// are non-final, so direct mutation is safe.
 void _applyHiddenContentHintsToNodes(
   Map<int, HiddenContentHint> hintsByIndex,
   List<RawSnapshotNode> nodes,
 ) {
-  // Intentional no-op: arguments retained so call-sites keep the correct
-  // shape when mutation support is added.
   if (hintsByIndex.isEmpty || nodes.isEmpty) return;
+  for (final entry in hintsByIndex.entries) {
+    final index = entry.key;
+    final hint = entry.value;
+    if (index < 0 || index >= nodes.length) continue;
+    final node = nodes[index];
+    if (hint.hiddenContentAbove) node.hiddenContentAbove = true;
+    if (hint.hiddenContentBelow) node.hiddenContentBelow = true;
+  }
 }
 
 /// Apply hidden content hints to nodes in the interactive snapshot.
 ///
-/// TODO(port): same blocker as [_applyHiddenContentHintsToNodes] — mutation
-/// of [RawSnapshotNode] isn't supported in the Dart port yet, so this stays
-/// a no-op shell. Keep the function + argument list to preserve the call
-/// seam; fill in the body when the snapshot model gets mutable/copy-with
-/// support.
+/// Both snapshots come from the same parsed hierarchy tree, so source node
+/// identity is the stable bridge between full geometry context and the pruned
+/// interactive output.  We build a reverse map from [AndroidUiHierarchy]
+/// object identity to the corresponding interactive [RawSnapshotNode], then
+/// look up each hinted full-snapshot source node via that map.
 void _applyHiddenContentHintsToInteractiveNodes(
   Map<int, HiddenContentHint> hintsByFullNodeIndex,
   AndroidBuiltSnapshot fullSnapshot,
   AndroidBuiltSnapshot interactiveSnapshot,
 ) {
-  if (hintsByFullNodeIndex.isEmpty ||
-      fullSnapshot.sourceNodes.isEmpty ||
-      interactiveSnapshot.sourceNodes.isEmpty) {
-    return;
+  if (hintsByFullNodeIndex.isEmpty) return;
+
+  // Map source node object identity → interactive RawSnapshotNode.
+  final interactiveNodesBySource = <AndroidUiHierarchy, RawSnapshotNode>{};
+  for (var i = 0; i < interactiveSnapshot.sourceNodes.length; i++) {
+    final sourceNode = interactiveSnapshot.sourceNodes[i];
+    if (i < interactiveSnapshot.nodes.length) {
+      interactiveNodesBySource[sourceNode] = interactiveSnapshot.nodes[i];
+    }
   }
-  // Intentional no-op until RawSnapshotNode is mutable.
+
+  for (final entry in hintsByFullNodeIndex.entries) {
+    final fullIndex = entry.key;
+    final hint = entry.value;
+    if (fullIndex < 0 || fullIndex >= fullSnapshot.sourceNodes.length) {
+      continue;
+    }
+    final sourceNode = fullSnapshot.sourceNodes[fullIndex];
+    final interactiveNode = interactiveNodesBySource[sourceNode];
+    if (interactiveNode == null) continue;
+
+    if (hint.hiddenContentAbove) interactiveNode.hiddenContentAbove = true;
+    if (hint.hiddenContentBelow) interactiveNode.hiddenContentBelow = true;
+  }
 }

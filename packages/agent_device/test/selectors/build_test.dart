@@ -9,7 +9,7 @@ import 'package:test/test.dart';
 void main() {
   group('buildSelectorChainForNode', () {
     test('builds selector with id', () {
-      final node = const SnapshotNode(
+      final node = SnapshotNode(
         index: 1,
         ref: 'e1',
         identifier: 'submit_button',
@@ -22,7 +22,7 @@ void main() {
     });
 
     test('builds selector with label and role', () {
-      final node = const SnapshotNode(
+      final node = SnapshotNode(
         index: 1,
         ref: 'e1',
         type: 'UIButton',
@@ -38,7 +38,7 @@ void main() {
     });
 
     test('includes editable=true for fill action', () {
-      final node = const SnapshotNode(
+      final node = SnapshotNode(
         index: 1,
         ref: 'e1',
         type: 'UITextField',
@@ -52,14 +52,14 @@ void main() {
     });
 
     test('falls back to visible for no other attributes', () {
-      final node = const SnapshotNode(index: 1, ref: 'e1', hittable: true);
+      final node = SnapshotNode(index: 1, ref: 'e1', hittable: true);
 
       final chain = buildSelectorChainForNode(node, 'ios');
       expect(chain, anyElement(contains('visible=')));
     });
 
     test('deduplicates selectors', () {
-      final node = const SnapshotNode(
+      final node = SnapshotNode(
         index: 1,
         ref: 'e1',
         type: 'UIButton',
