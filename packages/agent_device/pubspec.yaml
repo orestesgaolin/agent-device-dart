@@ -12,7 +12,7 @@ issue_tracker: https://github.com/roszkowski/agent-device-dart/issues
 resolution: workspace
 
 environment:
-  sdk: ^3.11.0
+  sdk: ^3.10.0
 
 executables:
   agent-device: agent_device
