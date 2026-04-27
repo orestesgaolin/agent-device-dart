@@ -42,10 +42,14 @@ Future<String> injectMp4Chapters(
 
     final tmpOut = '$mp4Path.chaptered.mp4';
     final result = await runCmd('ffmpeg', [
-      '-i', mp4Path,
-      '-i', metadataFile.path,
-      '-map_metadata', '1',
-      '-codec', 'copy',
+      '-i',
+      mp4Path,
+      '-i',
+      metadataFile.path,
+      '-map_metadata',
+      '1',
+      '-codec',
+      'copy',
       '-y',
       tmpOut,
     ], const ExecOptions(allowFailure: true));
@@ -62,9 +66,12 @@ Future<String> injectMp4Chapters(
   return mp4Path;
 }
 
-String _escapeMetadata(String s) =>
-    s.replaceAll('\\', '\\\\').replaceAll('=', '\\=').replaceAll(';', '\\;')
-        .replaceAll('#', '\\#').replaceAll('\n', ' ');
+String _escapeMetadata(String s) => s
+    .replaceAll('\\', '\\\\')
+    .replaceAll('=', '\\=')
+    .replaceAll(';', '\\;')
+    .replaceAll('#', '\\#')
+    .replaceAll('\n', ' ');
 
 Future<bool> _hasFfmpeg() async {
   try {

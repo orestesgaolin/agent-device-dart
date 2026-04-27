@@ -44,10 +44,9 @@ class TestRecorder {
   /// Mark a chapter at the current timestamp.
   void chapter(String title) {
     if (_startedAt == null || _stopped) return;
-    _chapters.add(VideoChapter(
-      title: title,
-      start: DateTime.now().difference(_startedAt!),
-    ));
+    _chapters.add(
+      VideoChapter(title: title, start: DateTime.now().difference(_startedAt!)),
+    );
   }
 
   /// Stop recording, finalize the file, and inject chapters.
