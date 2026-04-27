@@ -641,20 +641,39 @@ class IosRunnerClient {
   }) async {
     final url = _sessionEndpoint(session);
     // The CoreDevice tunnel occasionally RSTs a request mid-flight when
-    // it tears down a stale TCP forward; a single retry after a short
-    // cooldown is enough to ride past it.
-    try {
-      return await _postCommand(url, body, timeout: timeout);
-    } on SocketException catch (e) {
-      if (!_isTransientBridgeError(e)) rethrow;
-      _debugLog('[runner] retry after transient bridge error: ${e.message}');
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      return _postCommand(url, body, timeout: timeout);
-    } on HttpException catch (e) {
-      _debugLog('[runner] retry after HTTP framing error: ${e.message}');
-      await Future<void>.delayed(const Duration(milliseconds: 250));
-      return _postCommand(url, body, timeout: timeout);
+    // it tears down a stale TCP forward. On simulators the runner can
+    // also momentarily refuse new connections between tests while the
+    // previous test host is tearing down. We use exponential backoff
+    // with up to _maxRetries attempts to ride past these transient blips.
+    const delays = [
+      Duration(milliseconds: 250),
+      Duration(milliseconds: 500),
+      Duration(milliseconds: 1000),
+    ];
+    Object lastError = StateError('unreachable');
+    for (var attempt = 0; attempt <= delays.length; attempt++) {
+      try {
+        return await _postCommand(url, body, timeout: timeout);
+      } on SocketException catch (e) {
+        if (!_isTransientBridgeError(e)) rethrow;
+        lastError = e;
+        if (attempt == delays.length) break;
+        _debugLog(
+          '[runner] attempt ${attempt + 1} failed (${e.message}); '
+          'retrying in ${delays[attempt].inMilliseconds}ms',
+        );
+        await Future<void>.delayed(delays[attempt]);
+      } on HttpException catch (e) {
+        lastError = e;
+        if (attempt == delays.length) break;
+        _debugLog(
+          '[runner] attempt ${attempt + 1} failed HTTP framing (${e.message}); '
+          'retrying in ${delays[attempt].inMilliseconds}ms',
+        );
+        await Future<void>.delayed(delays[attempt]);
+      }
     }
+    throw lastError;
   }
 
   /// True for the OS errors we've seen the CoreDevice tunnel produce
