@@ -145,8 +145,8 @@ _captureAndroidUiHierarchy(
         installPolicy: options.helperInstallPolicy,
         timeoutMs: _helperInstallTimeoutMs,
       );
-      _log('[snapshot] helper install: ${install.reason} '
-          '(installed=${install.installed})');
+      _log('[snapshot] helper install: ${install.reason}'
+          '${install.installed ? ' (freshly installed)' : ' (already on device)'}');
       final capture = await captureAndroidSnapshotWithHelper(
         AndroidSnapshotHelperCaptureOptions(
           adb: adb,
