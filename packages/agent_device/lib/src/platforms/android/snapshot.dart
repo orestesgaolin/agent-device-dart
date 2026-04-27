@@ -8,53 +8,88 @@ import '../../utils/retry.dart';
 import '../../utils/scrollable.dart';
 import 'adb.dart';
 import 'scroll_hints.dart';
+import 'snapshot_helper_artifact.dart';
+import 'snapshot_helper_capture.dart';
+import 'snapshot_helper_install.dart';
+import 'snapshot_helper_types.dart';
+import 'snapshot_types.dart';
 import 'ui_hierarchy.dart';
 
 const _uiHierarchyDumpTimeoutMs = 8000;
+const _helperInstallTimeoutMs = 30000;
+const _helperCommandTimeoutMs = _uiHierarchyDumpTimeoutMs + androidSnapshotHelperCommandOverheadMs;
+
+/// Options for Android snapshot capture.
+class AndroidSnapshotOptions {
+  final SnapshotOptions snapshot;
+  final AndroidSnapshotHelperArtifact? helperArtifact;
+  final AndroidSnapshotHelperInstallPolicy helperInstallPolicy;
+  final AndroidAdbExecutor? helperAdb;
+
+  const AndroidSnapshotOptions({
+    this.snapshot = const SnapshotOptions(),
+    this.helperArtifact,
+    this.helperInstallPolicy = AndroidSnapshotHelperInstallPolicy.missingOrOutdated,
+    this.helperAdb,
+  });
+}
 
 /// Capture a device snapshot with optional filtering and hint enrichment.
 ///
-/// Dumps the Android UIAutomator hierarchy, parses it into RawSnapshotNode
-/// objects, and applies scroll-hint analysis to detect hidden content.
-/// When [options.interactiveOnly] is true, filters to interactive elements
-/// and applies both native scroll hints and presentation-based hints.
+/// Tries the snapshot helper first (if available), falling back to plain
+/// uiautomator dump. Returns both the nodes and backend metadata indicating
+/// which path was taken.
+///
+/// Port of `snapshotAndroid` in `snapshot.ts`.
 Future<
   ({
     List<RawSnapshotNode> nodes,
     bool? truncated,
     AndroidSnapshotAnalysis analysis,
+    AndroidSnapshotBackendMetadata androidSnapshot,
   })
 >
 snapshotAndroid(
   String serial, {
-  SnapshotOptions options = const SnapshotOptions(),
+  AndroidSnapshotOptions options = const AndroidSnapshotOptions(),
 }) async {
-  final xml = await dumpUiHierarchy(serial);
+  final capture = await _captureAndroidUiHierarchy(serial, options);
+  final xml = capture.xml;
+  final snapshotOptions = options.snapshot;
 
-  if (!(options.interactiveOnly ?? false)) {
-    final parsed = parseUiHierarchy(xml, 800, options);
+  if (!(snapshotOptions.interactiveOnly ?? false)) {
+    final parsed = parseUiHierarchy(xml, androidSnapshotMaxNodes, snapshotOptions);
     final nativeHints = await _deriveScrollableContentHintsIfNeeded(
       serial,
       parsed.nodes,
     );
     _applyHiddenContentHintsToNodes(nativeHints, parsed.nodes);
-    return parsed;
+    return (
+      nodes: parsed.nodes,
+      truncated: parsed.truncated,
+      analysis: parsed.analysis,
+      androidSnapshot: capture.metadata,
+    );
   }
 
   final tree = parseUiHierarchyTree(xml);
   final fullSnapshot = buildUiHierarchySnapshot(
     tree,
-    800,
+    androidSnapshotMaxNodes,
     SnapshotOptions(
       interactiveOnly: false,
-      compact: options.compact,
-      depth: options.depth,
-      scope: options.scope,
-      raw: options.raw,
+      compact: snapshotOptions.compact,
+      depth: snapshotOptions.depth,
+      scope: snapshotOptions.scope,
+      raw: snapshotOptions.raw,
     ),
   );
 
-  final interactiveSnapshot = buildUiHierarchySnapshot(tree, 800, options);
+  final interactiveSnapshot = buildUiHierarchySnapshot(
+    tree,
+    androidSnapshotMaxNodes,
+    snapshotOptions,
+  );
   final nativeHints = await _deriveScrollableContentHintsIfNeeded(
     serial,
     fullSnapshot.nodes,
@@ -81,7 +116,112 @@ snapshotAndroid(
     nodes: interactiveSnapshot.nodes,
     truncated: interactiveSnapshot.truncated,
     analysis: interactiveSnapshot.analysis,
+    androidSnapshot: capture.metadata,
   );
+}
+
+// ---------------------------------------------------------------------------
+// Helper capture orchestration
+// ---------------------------------------------------------------------------
+
+Future<({String xml, AndroidSnapshotBackendMetadata metadata})>
+_captureAndroidUiHierarchy(
+  String serial,
+  AndroidSnapshotOptions options,
+) async {
+  final helper = await _resolveAndroidSnapshotHelperArtifact(options.helperArtifact);
+  final artifact = helper.$1;
+
+  if (artifact != null) {
+    try {
+      final adb = options.helperAdb ?? _createDeviceAdbExecutor(serial);
+      final install = await ensureAndroidSnapshotHelper(
+        adb: adb,
+        artifact: artifact,
+        installPolicy: options.helperInstallPolicy,
+        timeoutMs: _helperInstallTimeoutMs,
+      );
+      final capture = await captureAndroidSnapshotWithHelper(
+        AndroidSnapshotHelperCaptureOptions(
+          adb: adb,
+          packageName: artifact.manifest.packageName,
+          instrumentationRunner: artifact.manifest.instrumentationRunner,
+          waitForIdleTimeoutMs: androidSnapshotHelperWaitForIdleTimeoutMs,
+          timeoutMs: _uiHierarchyDumpTimeoutMs,
+          commandTimeoutMs: _helperCommandTimeoutMs,
+        ),
+      );
+      return (
+        xml: capture.xml,
+        metadata: AndroidSnapshotBackendMetadata(
+          backend: 'android-helper',
+          helperVersion: artifact.manifest.version,
+          helperApiVersion: capture.metadata.helperApiVersion,
+          installReason: install.reason,
+          waitForIdleTimeoutMs: capture.metadata.waitForIdleTimeoutMs,
+          timeoutMs: capture.metadata.timeoutMs,
+          maxDepth: capture.metadata.maxDepth,
+          maxNodes: capture.metadata.maxNodes,
+          rootPresent: capture.metadata.rootPresent,
+          captureMode: capture.metadata.captureMode,
+          windowCount: capture.metadata.windowCount,
+          nodeCount: capture.metadata.nodeCount,
+          helperTruncated: capture.metadata.truncated,
+          elapsedMs: capture.metadata.elapsedMs,
+        ),
+      );
+    } catch (error) {
+      return _captureStockUiHierarchy(
+        serial,
+        fallbackReason: (error is AppError) ? error.message : error.toString(),
+      );
+    }
+  }
+
+  return _captureStockUiHierarchy(serial, fallbackReason: helper.$2);
+}
+
+Future<(AndroidSnapshotHelperArtifact?, String?)>
+_resolveAndroidSnapshotHelperArtifact(
+  AndroidSnapshotHelperArtifact? explicitArtifact,
+) async {
+  if (explicitArtifact != null) return (explicitArtifact, null);
+
+  final bundled = await resolveBundledAndroidSnapshotHelperArtifact();
+  if (bundled != null) return (bundled, null);
+  return (null, null);
+}
+
+Future<({String xml, AndroidSnapshotBackendMetadata metadata})>
+_captureStockUiHierarchy(
+  String serial, {
+  String? fallbackReason,
+}) async {
+  return (
+    xml: await dumpUiHierarchy(serial),
+    metadata: AndroidSnapshotBackendMetadata(
+      backend: 'uiautomator-dump',
+      fallbackReason: fallbackReason,
+    ),
+  );
+}
+
+AndroidAdbExecutor _createDeviceAdbExecutor(String serial) {
+  return (List<String> args, {bool allowFailure = false, int? timeoutMs}) async {
+    final result = await runCmd(
+      'adb',
+      adbArgs(serial, args),
+      ExecOptions(
+        allowFailure: allowFailure,
+        timeoutMs: timeoutMs,
+      ),
+    );
+    return AdbResult(
+      exitCode: result.exitCode,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    );
+  };
 }
 
 /// Derive scroll hints if any scrollable elements are present.

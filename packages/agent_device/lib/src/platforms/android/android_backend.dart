@@ -62,12 +62,14 @@ class AndroidBackend extends Backend {
     BackendCommandContext ctx,
     BackendSnapshotOptions? options,
   ) async {
-    final opts = SnapshotOptions(
-      interactiveOnly: options?.interactiveOnly,
-      compact: options?.compact,
-      depth: options?.depth,
-      scope: options?.scope,
-      raw: options?.raw,
+    final opts = AndroidSnapshotOptions(
+      snapshot: SnapshotOptions(
+        interactiveOnly: options?.interactiveOnly,
+        compact: options?.compact,
+        depth: options?.depth,
+        scope: options?.scope,
+        raw: options?.raw,
+      ),
     );
     final result = await snapshotAndroid(_serial(ctx), options: opts);
     // Attach @e<N> refs so Phase 7's target resolution (`findNodeByRef`)
