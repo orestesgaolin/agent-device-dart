@@ -144,6 +144,7 @@ abstract class AgentDeviceCommand extends Command<int> {
   /// (the default), leave `close()` unpinned so subsequent CLI runs can
   /// reuse the record.
   Future<AgentDevice> openAgentDevice({CommandSessionStore? sessions}) async {
+    if (verbose) agentDeviceVerbose = true;
     final store = sessions ?? resolveSessionStore();
     // Prefer a device serial already stored for this session if the user
     // hasn't narrowed down via --serial / --device. This is what lets

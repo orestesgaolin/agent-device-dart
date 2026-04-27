@@ -3,7 +3,7 @@
 import 'dart:io' show stderr, Platform;
 
 import '../../snapshot/snapshot.dart';
-import '../../utils/errors.dart';
+import '../../utils/errors.dart' show AppError, AppErrorCodes, agentDeviceVerbose;
 import '../../utils/exec.dart';
 import '../../utils/mobile_snapshot_semantics.dart';
 import '../../utils/retry.dart';
@@ -538,7 +538,7 @@ void _applyHiddenContentHintsToInteractiveNodes(
 }
 
 bool get _verbose =>
-    Platform.environment['AGENT_DEVICE_VERBOSE'] == '1' ||
+    agentDeviceVerbose ||
     Platform.environment['AGENT_DEVICE_ANDROID_SNAPSHOT_DEBUG'] == '1';
 
 void _log(String message) {
