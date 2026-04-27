@@ -10,6 +10,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:agent_device/src/utils/exec.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
@@ -105,7 +106,42 @@ Future<AndroidSnapshotHelperArtifact?> resolveBundledAndroidSnapshotHelperArtifa
 
   final helperDir = p.join(repoRoot, 'android-snapshot-helper', 'dist');
 
-  // Find any manifest JSON in the dist directory.
+  var artifact = _readBundledArtifact(helperDir);
+  if (artifact != null) return artifact;
+
+  // Auto-build: if the source exists but dist doesn't, build + package.
+  final buildScript = p.join(repoRoot, 'scripts', 'build-android-snapshot-helper.sh');
+  final packageScript = File(
+    p.join(repoRoot, 'agent-device', 'scripts', 'package-android-snapshot-helper.sh'),
+  );
+  final helperSource = Directory(p.join(repoRoot, 'android-snapshot-helper', 'src'));
+  if (!helperSource.existsSync()) return null;
+  if (!File(buildScript).existsSync() && !packageScript.existsSync()) return null;
+
+  final sdkRoot = Platform.environment['ANDROID_HOME'] ??
+      Platform.environment['ANDROID_SDK_ROOT'];
+  if (sdkRoot == null || sdkRoot.isEmpty) return null;
+
+  try {
+    if (packageScript.existsSync()) {
+      final r = await runCmd('sh', [
+        packageScript.path, '0.0.1', 'local', helperDir,
+      ], const ExecOptions(allowFailure: true));
+      if (r.exitCode != 0) return null;
+    } else {
+      final r = await runCmd('sh', [
+        buildScript, '0.0.1', helperDir,
+      ], const ExecOptions(allowFailure: true));
+      if (r.exitCode != 0) return null;
+    }
+  } catch (_) {
+    return null;
+  }
+
+  return _readBundledArtifact(helperDir);
+}
+
+AndroidSnapshotHelperArtifact? _readBundledArtifact(String helperDir) {
   Directory distDir;
   try {
     distDir = Directory(helperDir);
