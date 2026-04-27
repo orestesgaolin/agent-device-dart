@@ -7,6 +7,8 @@
 // package across the uninstall/install cycle.
 library;
 
+import 'dart:io';
+
 import 'package:agent_device/src/utils/errors.dart';
 
 import '../base_command.dart';
@@ -85,6 +87,16 @@ class UninstallCommand extends AgentDeviceCommand {
 }
 
 class ReinstallCommand extends AgentDeviceCommand {
+  ReinstallCommand() {
+    argParser.addFlag(
+      'reset-keychain',
+      help:
+          'Reset the simulator keychain before reinstalling (iOS simulator only). '
+          'Clears all stored credentials and tokens.',
+      negatable: false,
+    );
+  }
+
   @override
   String get name => 'reinstall';
 
@@ -104,14 +116,47 @@ class ReinstallCommand extends AgentDeviceCommand {
     }
     final app = args[0];
     final path = args[1];
+    final resetKeychain = argResults?['reset-keychain'] == true;
     final device = await openAgentDevice();
+
+    if (resetKeychain) {
+      await _resetSimulatorKeychain(device.device.id);
+    }
+
     final res = await device.reinstallApp(app: app, path: path);
     emitResult(
       res.toJson(),
-      humanFormat: (_) =>
-          'reinstalled ${res.bundleId ?? res.packageName ?? res.appId ?? app} '
-          'from $path',
+      humanFormat: (_) {
+        final id = res.bundleId ?? res.packageName ?? res.appId ?? app;
+        final kcNote = resetKeychain ? ' (keychain reset)' : '';
+        return 'reinstalled $id from $path$kcNote';
+      },
     );
     return 0;
+  }
+
+  Future<void> _resetSimulatorKeychain(String udid) async {
+    final result = await Process.run('xcrun', [
+      'simctl',
+      'keychain',
+      udid,
+      'reset',
+    ]);
+    if (result.exitCode != 0) {
+      final stderr = result.stderr.toString();
+      if (stderr.contains('Invalid device') ||
+          stderr.contains('Unable to lookup')) {
+        throw AppError(
+          AppErrorCodes.commandFailed,
+          '--reset-keychain is only supported on iOS simulators.',
+          details: {'stderr': stderr},
+        );
+      }
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'Failed to reset simulator keychain (exit ${result.exitCode}).',
+        details: {'stderr': stderr},
+      );
+    }
   }
 }
