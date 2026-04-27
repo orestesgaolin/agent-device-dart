@@ -17,3 +17,4 @@ doc/api/
 
 # agent-device runtime state
 .agent-device/
+.tmp/
