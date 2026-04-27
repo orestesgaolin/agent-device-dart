@@ -194,18 +194,32 @@ AndroidSnapshotHelperArtifact? _readBundledArtifact(String helperDir) {
 // ---------------------------------------------------------------------------
 
 String? _findRepoRoot() {
-  // Walk up from the current working directory looking for a `pubspec.yaml`
-  // that is at the repo workspace root (contains `android-snapshot-helper/`).
-  var dir = Directory.current;
-  for (var i = 0; i < 10; i++) {
-    if (Directory(p.join(dir.path, 'android-snapshot-helper')).existsSync()) {
-      return dir.path;
+  // Try multiple starting points so `ad` works from any CWD:
+  // 1. Walk up from CWD (works when run from repo root or subdir)
+  // 2. Walk up from the Dart script/binary location (works when `ad`
+  //    is compiled or activated globally)
+  for (final start in _candidateRoots()) {
+    var dir = start;
+    for (var i = 0; i < 10; i++) {
+      if (Directory(p.join(dir.path, 'android-snapshot-helper')).existsSync()) {
+        return dir.path;
+      }
+      final parent = dir.parent;
+      if (parent.path == dir.path) break;
+      dir = parent;
     }
-    final parent = dir.parent;
-    if (parent.path == dir.path) break;
-    dir = parent;
   }
   return null;
+}
+
+Iterable<Directory> _candidateRoots() sync* {
+  yield Directory.current;
+  try {
+    yield Directory(p.dirname(Platform.resolvedExecutable));
+  } catch (_) {}
+  try {
+    yield Directory(p.dirname(Platform.script.toFilePath()));
+  } catch (_) {}
 }
 
 Future<String> _sha256File(String filePath) async {
