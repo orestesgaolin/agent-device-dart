@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:agent_device/agent_device.dart';
 import 'package:agent_device/src/runtime/interaction_target.dart';
 import 'package:agent_device/src/snapshot/processing.dart';
+import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
 const defaultIosFixtureBundleId = 'com.example.agentDeviceFixtureApp';
@@ -530,4 +531,19 @@ String _normalizeSelectorText(String? value) {
     return '';
   }
   return value.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+}
+
+/// Create a [TestRecorder] that records to a CI-friendly path.
+/// Returns null when the `AD_RECORD_TESTS` env var is not set,
+/// so callers can guard recording behind an opt-in flag.
+TestRecorder? createTestRecorder(
+  AgentDevice device, {
+  required String suiteName,
+}) {
+  final dir = Platform.environment['AD_RECORD_TESTS'];
+  if (dir == null || dir.isEmpty) return null;
+  final outDir = Directory(dir);
+  if (!outDir.existsSync()) outDir.createSync(recursive: true);
+  final outPath = p.join(dir, '$suiteName.mp4');
+  return TestRecorder(device, outPath);
 }

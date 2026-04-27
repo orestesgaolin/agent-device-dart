@@ -212,6 +212,8 @@ export 'src/utils/retry.dart'
         retryWithPolicy,
         timeoutProfiles,
         withRetry;
+export 'src/utils/test_recorder.dart' show TestRecorder;
 export 'src/utils/timeouts.dart'
     show resolveTimeoutMs, resolveTimeoutSeconds, sleep;
+export 'src/utils/video_chapters.dart' show VideoChapter, injectMp4Chapters;
 export 'src/version.dart';

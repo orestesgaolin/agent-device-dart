@@ -27,6 +27,7 @@ void main() {
 
   late AgentDevice device;
   late String udid;
+  TestRecorder? recorder;
 
   setUpAll(() async {
     udid =
@@ -38,9 +39,12 @@ void main() {
       sessionName: 'fixture-ios-package',
     );
     print('[fixture-ios] opened session on ${device.device.id}');
+    recorder = createTestRecorder(device, suiteName: 'fixture-ios');
+    await recorder?.start();
   });
 
   tearDownAll(() async {
+    await recorder?.stop();
     await device.close();
   });
 
@@ -51,6 +55,7 @@ void main() {
   test(
     'home screen exposes scenario navigation',
     () async {
+      recorder?.chapter('home screen exposes scenario navigation');
       await expectVisibleId(device, FixtureIds.homeScenarioTitle);
       await expectVisibleId(device, FixtureIds.homeOpenFormLabButton);
       await expectVisibleId(device, FixtureIds.homeOpenCatalogButton);
@@ -63,6 +68,7 @@ void main() {
   test(
     'submits and resets Form Lab through package API interactions',
     () async {
+      recorder?.chapter('submits and resets Form Lab');
       await tapId(device, FixtureIds.homeOpenFormLabButton);
       await expectVisibleId(device, FixtureIds.formSubmitProfileButton);
       await tapId(device, FixtureIds.formAcceptTestTermsCheckbox);
@@ -85,6 +91,7 @@ void main() {
   test(
     'filters Catalog and completes a scenario detail flow',
     () async {
+      recorder?.chapter('filters Catalog and completes detail flow');
       await tapId(device, FixtureIds.homeOpenCatalogButton);
       await expectIdText(
         device,
@@ -122,6 +129,7 @@ void main() {
   test(
     'updates State Lab counters, snackbar, and async recommendations',
     () async {
+      recorder?.chapter('updates State Lab counters and snackbar');
       await tapId(device, FixtureIds.homeOpenStateLabButton);
       await expectIdText(
         device,
@@ -154,6 +162,7 @@ void main() {
   test(
     'handles Diagnostics dialog, banner toggle, and status sheet',
     () async {
+      recorder?.chapter('handles Diagnostics dialog and status sheet');
       await swipeUp(device);
       await tapId(device, FixtureIds.homeOpenDiagnosticsButton);
       await expectVisibleId(device, FixtureIds.diagnosticsPermissionBanner);
