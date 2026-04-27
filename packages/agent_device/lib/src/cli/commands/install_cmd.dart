@@ -7,8 +7,6 @@
 // package across the uninstall/install cycle.
 library;
 
-import 'dart:io';
-
 import 'package:agent_device/src/utils/errors.dart';
 
 import '../base_command.dart';
@@ -118,12 +116,11 @@ class ReinstallCommand extends AgentDeviceCommand {
     final path = args[1];
     final resetKeychain = argResults?['reset-keychain'] == true;
     final device = await openAgentDevice();
-
-    if (resetKeychain) {
-      await _resetSimulatorKeychain(device.device.id);
-    }
-
-    final res = await device.reinstallApp(app: app, path: path);
+    final res = await device.reinstallApp(
+      app: app,
+      path: path,
+      resetKeychain: resetKeychain,
+    );
     emitResult(
       res.toJson(),
       humanFormat: (_) {
@@ -133,30 +130,5 @@ class ReinstallCommand extends AgentDeviceCommand {
       },
     );
     return 0;
-  }
-
-  Future<void> _resetSimulatorKeychain(String udid) async {
-    final result = await Process.run('xcrun', [
-      'simctl',
-      'keychain',
-      udid,
-      'reset',
-    ]);
-    if (result.exitCode != 0) {
-      final stderr = result.stderr.toString();
-      if (stderr.contains('Invalid device') ||
-          stderr.contains('Unable to lookup')) {
-        throw AppError(
-          AppErrorCodes.commandFailed,
-          '--reset-keychain is only supported on iOS simulators.',
-          details: {'stderr': stderr},
-        );
-      }
-      throw AppError(
-        AppErrorCodes.commandFailed,
-        'Failed to reset simulator keychain (exit ${result.exitCode}).',
-        details: {'stderr': stderr},
-      );
-    }
   }
 }

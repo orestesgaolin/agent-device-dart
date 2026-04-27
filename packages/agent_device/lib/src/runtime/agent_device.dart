@@ -616,11 +616,20 @@ class AgentDevice {
   Future<BackendInstallResult> reinstallApp({
     required String path,
     required String app,
+    bool resetKeychain = false,
   }) async {
+    if (resetKeychain) {
+      await backend.resetKeychain(await _ctx());
+    }
     return backend.reinstallApp(
       await _ctx(),
       BackendInstallTarget(app: app, source: BackendInstallSourcePath(path)),
     );
+  }
+
+  /// Reset the simulator keychain (iOS simulator only).
+  Future<void> resetKeychain() async {
+    await backend.resetKeychain(await _ctx());
   }
 
   // =========================================================================

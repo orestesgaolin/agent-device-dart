@@ -1186,6 +1186,19 @@ class IosBackend extends Backend {
   }
 
   @override
+  Future<void> resetKeychain(BackendCommandContext ctx) async {
+    final udid = _udid(ctx);
+    final r = await runCmd('xcrun', ['simctl', 'keychain', udid, 'reset']);
+    if (r.exitCode != 0) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'simctl keychain reset failed for $udid',
+        details: {'stderr': r.stderr, 'exitCode': r.exitCode},
+      );
+    }
+  }
+
+  @override
   Future<List<BackendDeviceInfo>> listDevices(
     BackendCommandContext ctx, [
     BackendDeviceFilter? filter,
