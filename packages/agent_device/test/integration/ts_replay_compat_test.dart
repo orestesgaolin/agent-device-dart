@@ -105,13 +105,15 @@ void main() {
     expect(
       r.exitCode,
       0,
-      reason: '$scriptName exit=${r.exitCode}\n'
+      reason:
+          '$scriptName exit=${r.exitCode}\n'
           'stderr=${r.stderr}\nstdout=$stdout',
     );
     expect(
       data?['ok'],
       isTrue,
-      reason: '$scriptName replay not ok.\n'
+      reason:
+          '$scriptName replay not ok.\n'
           'passed=${data?['passed']}  failed=${data?['failed']}\n'
           'steps=${jsonEncode(data?['steps'])}\n'
           'stderr=${r.stderr}',
@@ -130,12 +132,13 @@ void main() {
 
       final iosDir = Directory(p.join(tsReplaysDir, 'ios', 'simulator'));
       if (iosDir.existsSync()) {
-        final scripts = iosDir
-            .listSync()
-            .whereType<File>()
-            .where((f) => f.path.endsWith('.ad'))
-            .toList()
-          ..sort((a, b) => a.path.compareTo(b.path));
+        final scripts =
+            iosDir
+                .listSync()
+                .whereType<File>()
+                .where((f) => f.path.endsWith('.ad'))
+                .toList()
+              ..sort((a, b) => a.path.compareTo(b.path));
 
         for (final script in scripts) {
           final name = p.basenameWithoutExtension(script.path);
@@ -165,12 +168,13 @@ void main() {
 
       final androidDir = Directory(p.join(tsReplaysDir, 'android'));
       if (androidDir.existsSync()) {
-        final scripts = androidDir
-            .listSync()
-            .whereType<File>()
-            .where((f) => f.path.endsWith('.ad'))
-            .toList()
-          ..sort((a, b) => a.path.compareTo(b.path));
+        final scripts =
+            androidDir
+                .listSync()
+                .whereType<File>()
+                .where((f) => f.path.endsWith('.ad'))
+                .toList()
+              ..sort((a, b) => a.path.compareTo(b.path));
 
         for (final script in scripts) {
           final name = p.basenameWithoutExtension(script.path);

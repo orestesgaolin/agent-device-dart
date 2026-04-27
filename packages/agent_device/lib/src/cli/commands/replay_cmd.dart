@@ -98,11 +98,14 @@ class ReplayCommand extends AgentDeviceCommand {
         if (recordPath != null) {
           final elapsed = DateTime.now().difference(recordingStarted);
           final marker = step.ok ? '✓' : '✗';
-          chapters.add(VideoChapter(
-            title: '$marker step ${step.index + 1}: ${step.action.command}'
-                '${step.action.positionals.isNotEmpty ? ' ${step.action.positionals.first}' : ''}',
-            start: elapsed,
-          ));
+          chapters.add(
+            VideoChapter(
+              title:
+                  '$marker step ${step.index + 1}: ${step.action.command}'
+                  '${step.action.positionals.isNotEmpty ? ' ${step.action.positionals.first}' : ''}',
+              start: elapsed,
+            ),
+          );
         }
         if (!asJson) {
           final marker = step.ok ? 'ok' : 'FAIL';
@@ -121,13 +124,15 @@ class ReplayCommand extends AgentDeviceCommand {
           await injectMp4Chapters(recordPath, chapters);
         }
       } catch (e) {
-        if (!asJson) stderr.writeln('warning: recording finalization failed: $e');
+        if (!asJson) {
+          stderr.writeln('warning: recording finalization failed: $e');
+        }
       }
     }
 
     final data = result.toJson();
     if (recordPath != null) {
-      (data as Map<String, Object?>)['recordingPath'] = recordPath;
+      (data)['recordingPath'] = recordPath;
     }
     emitResult(
       data,

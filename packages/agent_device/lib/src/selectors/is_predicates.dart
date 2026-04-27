@@ -213,9 +213,7 @@ Rect? _resolveViewportRect(List<SnapshotNode> nodes, Rect targetRect) {
   );
   if (containingViewport != null) return containingViewport;
 
-  final fallback = _pickLargestRect(
-    viewportNodes.map((n) => n.rect!).toList(),
-  );
+  final fallback = _pickLargestRect(viewportNodes.map((n) => n.rect!).toList());
   if (fallback != null) return fallback;
 
   return _pickLargestRect(

@@ -349,9 +349,8 @@ abstract class Backend {
   ) async => unsupported('reinstallApp');
 
   /// Reset the device keychain (simulator only).
-  Future<void> resetKeychain(
-    BackendCommandContext ctx,
-  ) async => unsupported('resetKeychain');
+  Future<void> resetKeychain(BackendCommandContext ctx) async =>
+      unsupported('resetKeychain');
 
   // =========================================================================
   // Recording and Tracing

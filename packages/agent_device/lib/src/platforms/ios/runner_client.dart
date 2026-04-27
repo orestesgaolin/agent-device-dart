@@ -231,10 +231,14 @@ class IosRunnerClient {
     _debugLog('[runner] auto-building iOS runner…');
     final result = await runCmd('xcodebuild', [
       'build-for-testing',
-      '-project', projectPath,
-      '-scheme', 'AgentDeviceRunner',
-      '-destination', 'generic/platform=iOS Simulator',
-      '-derivedDataPath', derivedDataPath,
+      '-project',
+      projectPath,
+      '-scheme',
+      'AgentDeviceRunner',
+      '-destination',
+      'generic/platform=iOS Simulator',
+      '-derivedDataPath',
+      derivedDataPath,
       '-quiet',
     ], const ExecOptions(allowFailure: true));
     if (result.exitCode != 0) {

@@ -91,59 +91,62 @@ void main() {
       expect(result.pass, isTrue);
     });
 
-    test('scroll container clips children — inside visible, outside hidden', () {
-      final nodes = [
-        const SnapshotNode(
-          index: 0,
-          ref: 'e1',
-          type: 'Window',
-          depth: 0,
-          rect: Rect(x: 0, y: 0, width: 390, height: 844),
-        ),
-        const SnapshotNode(
-          index: 1,
-          ref: 'e2',
-          type: 'android.widget.ScrollView',
-          depth: 1,
-          parentIndex: 0,
-          rect: Rect(x: 0, y: 120, width: 390, height: 500),
-        ),
-        const SnapshotNode(
-          index: 2,
-          ref: 'e3',
-          type: 'android.widget.TextView',
-          label: 'Inside',
-          depth: 2,
-          parentIndex: 1,
-          rect: Rect(x: 20, y: 200, width: 200, height: 30),
-        ),
-        const SnapshotNode(
-          index: 3,
-          ref: 'e4',
-          type: 'android.widget.TextView',
-          label: 'Clipped',
-          depth: 2,
-          parentIndex: 1,
-          rect: Rect(x: 20, y: 700, width: 200, height: 30),
-        ),
-      ];
+    test(
+      'scroll container clips children — inside visible, outside hidden',
+      () {
+        final nodes = [
+          const SnapshotNode(
+            index: 0,
+            ref: 'e1',
+            type: 'Window',
+            depth: 0,
+            rect: Rect(x: 0, y: 0, width: 390, height: 844),
+          ),
+          const SnapshotNode(
+            index: 1,
+            ref: 'e2',
+            type: 'android.widget.ScrollView',
+            depth: 1,
+            parentIndex: 0,
+            rect: Rect(x: 0, y: 120, width: 390, height: 500),
+          ),
+          const SnapshotNode(
+            index: 2,
+            ref: 'e3',
+            type: 'android.widget.TextView',
+            label: 'Inside',
+            depth: 2,
+            parentIndex: 1,
+            rect: Rect(x: 20, y: 200, width: 200, height: 30),
+          ),
+          const SnapshotNode(
+            index: 3,
+            ref: 'e4',
+            type: 'android.widget.TextView',
+            label: 'Clipped',
+            depth: 2,
+            parentIndex: 1,
+            rect: Rect(x: 20, y: 700, width: 200, height: 30),
+          ),
+        ];
 
-      final insideResult = evaluateIsPredicate(
-        predicate: 'visible',
-        node: nodes[2],
-        nodes: nodes,
-        platform: 'android',
-      );
-      expect(insideResult.pass, isTrue);
+        final insideResult = evaluateIsPredicate(
+          predicate: 'visible',
+          node: nodes[2],
+          nodes: nodes,
+          platform: 'android',
+        );
+        expect(insideResult.pass, isTrue);
 
-      final clippedResult = evaluateIsPredicate(
-        predicate: 'visible',
-        node: nodes[3],
-        nodes: nodes,
-        platform: 'android',
-      );
-      expect(clippedResult.pass, isFalse);
-    });
+        final clippedResult = evaluateIsPredicate(
+          predicate: 'visible',
+          node: nodes[3],
+          nodes: nodes,
+          platform: 'android',
+        );
+        expect(clippedResult.pass, isFalse);
+      },
+    );
 
     test('node at exact viewport boundary is visible (1px overlap)', () {
       final nodes = [

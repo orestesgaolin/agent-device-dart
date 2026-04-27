@@ -35,8 +35,8 @@ class DevicesCommand extends AgentDeviceCommand {
           final status = d.booted == true
               ? '  (booted)'
               : d.booted == false
-                  ? '  (shutdown)'
-                  : '';
+              ? '  (shutdown)'
+              : '';
           lines.writeln(
             '${d.id.padRight(20)}  ${d.name}  [${d.platform.name}]$status',
           );

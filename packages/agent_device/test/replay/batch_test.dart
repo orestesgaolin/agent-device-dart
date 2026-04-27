@@ -12,8 +12,15 @@ void main() {
     test('accepts well-formed steps', () {
       final steps = validateAndNormalizeBatchSteps([
         {'command': 'home'},
-        {'command': 'snapshot', 'positionals': ['-i']},
-        {'command': 'tap', 'positionals': ['200', '300'], 'flags': {'force': true}},
+        {
+          'command': 'snapshot',
+          'positionals': ['-i'],
+        },
+        {
+          'command': 'tap',
+          'positionals': ['200', '300'],
+          'flags': {'force': true},
+        },
       ], 100);
       expect(steps, hasLength(3));
       expect(steps[0].command, 'home');
@@ -32,11 +39,13 @@ void main() {
       final large = List.generate(5, (_) => {'command': 'home'});
       expect(
         () => validateAndNormalizeBatchSteps(large, 3),
-        throwsA(isA<AppError>().having(
-          (e) => e.message,
-          'message',
-          contains('max allowed is 3'),
-        )),
+        throwsA(
+          isA<AppError>().having(
+            (e) => e.message,
+            'message',
+            contains('max allowed is 3'),
+          ),
+        ),
       );
     });
 
@@ -45,11 +54,13 @@ void main() {
         () => validateAndNormalizeBatchSteps([
           {'command': 'batch'},
         ], 100),
-        throwsA(isA<AppError>().having(
-          (e) => e.message,
-          'message',
-          contains('cannot run batch'),
-        )),
+        throwsA(
+          isA<AppError>().having(
+            (e) => e.message,
+            'message',
+            contains('cannot run batch'),
+          ),
+        ),
       );
     });
 
@@ -67,31 +78,40 @@ void main() {
         () => validateAndNormalizeBatchSteps([
           {'command': 'home', 'extra': 1},
         ], 100),
-        throwsA(isA<AppError>().having(
-          (e) => e.message,
-          'message',
-          contains('"extra"'),
-        )),
+        throwsA(
+          isA<AppError>().having(
+            (e) => e.message,
+            'message',
+            contains('"extra"'),
+          ),
+        ),
       );
     });
 
     test('rejects missing command', () {
       expect(
         () => validateAndNormalizeBatchSteps([
-          {'positionals': ['x']},
+          {
+            'positionals': ['x'],
+          },
         ], 100),
-        throwsA(isA<AppError>().having(
-          (e) => e.message,
-          'message',
-          contains('requires command'),
-        )),
+        throwsA(
+          isA<AppError>().having(
+            (e) => e.message,
+            'message',
+            contains('requires command'),
+          ),
+        ),
       );
     });
 
     test('rejects non-string positionals', () {
       expect(
         () => validateAndNormalizeBatchSteps([
-          {'command': 'tap', 'positionals': [1, 2]},
+          {
+            'command': 'tap',
+            'positionals': [1, 2],
+          },
         ], 100),
         throwsA(isA<AppError>()),
       );
@@ -108,10 +128,7 @@ void main() {
     });
 
     test('rejects invalid JSON', () {
-      expect(
-        () => parseBatchStepsJson('not json'),
-        throwsA(isA<AppError>()),
-      );
+      expect(() => parseBatchStepsJson('not json'), throwsA(isA<AppError>()));
     });
 
     test('rejects non-array JSON', () {
@@ -224,12 +241,11 @@ class _RecordingBackend extends Backend {
   Future<List<BackendDeviceInfo>> listDevices(
     BackendCommandContext ctx, [
     BackendDeviceFilter? filter,
-  ]) async =>
-      [
-        const BackendDeviceInfo(
-          id: 'mock-serial',
-          name: 'mock',
-          platform: AgentDeviceBackendPlatform.android,
-        ),
-      ];
+  ]) async => [
+    const BackendDeviceInfo(
+      id: 'mock-serial',
+      name: 'mock',
+      platform: AgentDeviceBackendPlatform.android,
+    ),
+  ];
 }

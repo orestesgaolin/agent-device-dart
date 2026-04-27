@@ -860,7 +860,9 @@ Future<List<String>> dispatchReplayAction({
       return [outPath];
 
     case 'clipboard':
-      final setText = flags['set']?.toString() ?? (positionals.isNotEmpty ? positionals.first : null);
+      final setText =
+          flags['set']?.toString() ??
+          (positionals.isNotEmpty ? positionals.first : null);
       if (setText != null) {
         await device.setClipboard(setText);
       } else {
@@ -892,7 +894,9 @@ Future<List<String>> dispatchReplayAction({
       Map<String, Object?>? payload;
       final payloadRaw = flags['payload'];
       if (payloadRaw is Map) {
-        payload = {for (final e in payloadRaw.entries) e.key.toString(): e.value};
+        payload = {
+          for (final e in payloadRaw.entries) e.key.toString(): e.value,
+        };
       }
       await device.triggerAppEvent(positionals.first, payload: payload);
       return const [];
@@ -932,9 +936,9 @@ Future<List<String>> dispatchReplayAction({
       final pushPayload = flags['payload'];
       final BackendPushInput input;
       if (pushPayload is Map) {
-        input = BackendPushInputJson(
-          {for (final e in pushPayload.entries) e.key.toString(): e.value},
-        );
+        input = BackendPushInputJson({
+          for (final e in pushPayload.entries) e.key.toString(): e.value,
+        });
       } else if (positionals.length >= 2) {
         input = BackendPushInputFile(positionals[1]);
       } else {

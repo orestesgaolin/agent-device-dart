@@ -614,10 +614,7 @@ class KeyboardCommand extends AgentDeviceCommand {
     }
     final device = await openAgentDevice();
     final result = await device.setKeyboard(action);
-    emitResult(
-      result,
-      humanFormat: (_) => 'keyboard $action',
-    );
+    emitResult(result, humanFormat: (_) => 'keyboard $action');
     return 0;
   }
 }
@@ -672,10 +669,11 @@ class TriggerAppEventCommand extends AgentDeviceCommand {
     }
     final device = await openAgentDevice();
     final result = await device.triggerAppEvent(eventName, payload: payload);
-    emitResult(
-      {'event': eventName, 'payload': ?payload, 'result': result},
-      humanFormat: (_) => 'triggered app event: $eventName',
-    );
+    emitResult({
+      'event': eventName,
+      'payload': ?payload,
+      'result': result,
+    }, humanFormat: (_) => 'triggered app event: $eventName');
     return 0;
   }
 }
