@@ -123,17 +123,25 @@ Future<AndroidSnapshotHelperArtifact?> resolveBundledAndroidSnapshotHelperArtifa
   if (sdkRoot == null || sdkRoot.isEmpty) return null;
 
   try {
+    stderr.writeln('[snapshot] auto-building Android snapshot helper APK…');
     if (packageScript.existsSync()) {
       final r = await runCmd('sh', [
         packageScript.path, '0.0.1', 'local', helperDir,
       ], const ExecOptions(allowFailure: true));
-      if (r.exitCode != 0) return null;
+      if (r.exitCode != 0) {
+        stderr.writeln('[snapshot] helper build failed (exit ${r.exitCode})');
+        return null;
+      }
     } else {
       final r = await runCmd('sh', [
         buildScript, '0.0.1', helperDir,
       ], const ExecOptions(allowFailure: true));
-      if (r.exitCode != 0) return null;
+      if (r.exitCode != 0) {
+        stderr.writeln('[snapshot] helper build failed (exit ${r.exitCode})');
+        return null;
+      }
     }
+    stderr.writeln('[snapshot] helper build complete');
   } catch (_) {
     return null;
   }

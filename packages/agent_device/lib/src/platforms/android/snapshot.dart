@@ -1,5 +1,7 @@
 // Port of agent-device/src/platforms/android/snapshot.ts
 
+import 'dart:io' show stderr, Platform;
+
 import '../../snapshot/snapshot.dart';
 import '../../utils/errors.dart';
 import '../../utils/exec.dart';
@@ -134,6 +136,8 @@ _captureAndroidUiHierarchy(
 
   if (artifact != null) {
     try {
+      _log('[snapshot] using helper v${artifact.manifest.version} '
+          '(${artifact.apkPath})');
       final adb = options.helperAdb ?? _createDeviceAdbExecutor(serial);
       final install = await ensureAndroidSnapshotHelper(
         adb: adb,
@@ -141,6 +145,8 @@ _captureAndroidUiHierarchy(
         installPolicy: options.helperInstallPolicy,
         timeoutMs: _helperInstallTimeoutMs,
       );
+      _log('[snapshot] helper install: ${install.reason} '
+          '(installed=${install.installed})');
       final capture = await captureAndroidSnapshotWithHelper(
         AndroidSnapshotHelperCaptureOptions(
           adb: adb,
@@ -151,6 +157,11 @@ _captureAndroidUiHierarchy(
           commandTimeoutMs: _helperCommandTimeoutMs,
         ),
       );
+      _log('[snapshot] helper capture: '
+          'mode=${capture.metadata.captureMode} '
+          'windows=${capture.metadata.windowCount} '
+          'nodes=${capture.metadata.nodeCount} '
+          '${capture.metadata.elapsedMs}ms');
       return (
         xml: capture.xml,
         metadata: AndroidSnapshotBackendMetadata(
@@ -171,13 +182,14 @@ _captureAndroidUiHierarchy(
         ),
       );
     } catch (error) {
-      return _captureStockUiHierarchy(
-        serial,
-        fallbackReason: (error is AppError) ? error.message : error.toString(),
-      );
+      final reason = (error is AppError) ? error.message : error.toString();
+      _log('[snapshot] helper failed, falling back to uiautomator: $reason');
+      return _captureStockUiHierarchy(serial, fallbackReason: reason);
     }
   }
 
+  _log('[snapshot] no helper artifact available'
+      '${helper.$2 != null ? ' (${helper.$2})' : ''}, using uiautomator');
   return _captureStockUiHierarchy(serial, fallbackReason: helper.$2);
 }
 
@@ -523,4 +535,12 @@ void _applyHiddenContentHintsToInteractiveNodes(
     if (hint.hiddenContentAbove) interactiveNode.hiddenContentAbove = true;
     if (hint.hiddenContentBelow) interactiveNode.hiddenContentBelow = true;
   }
+}
+
+bool get _verbose =>
+    Platform.environment['AGENT_DEVICE_VERBOSE'] == '1' ||
+    Platform.environment['AGENT_DEVICE_ANDROID_SNAPSHOT_DEBUG'] == '1';
+
+void _log(String message) {
+  if (_verbose) stderr.writeln(message);
 }
