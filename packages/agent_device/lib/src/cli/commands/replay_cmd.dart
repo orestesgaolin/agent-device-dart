@@ -10,6 +10,7 @@ import 'dart:io';
 import 'package:agent_device/src/replay/replay_runtime.dart';
 import 'package:agent_device/src/replay/script.dart' as script;
 import 'package:agent_device/src/utils/errors.dart';
+import 'package:agent_device/src/utils/video_chapters.dart';
 import 'package:path/path.dart' as p;
 
 import '../base_command.dart';
@@ -41,6 +42,13 @@ class ReplayCommand extends AgentDeviceCommand {
             r'built-ins. Repeat to set multiple. Reserved AD_* keys are '
             r'rejected.',
         valueHelp: 'KEY=VALUE',
+      )
+      ..addOption(
+        'record',
+        help:
+            'Record video of the replay and save to <path>. Chapter markers '
+            'are embedded at each step boundary (requires ffmpeg).',
+        valueHelp: 'PATH',
       );
   }
 
@@ -69,6 +77,14 @@ class ReplayCommand extends AgentDeviceCommand {
     final artifactDir = _resolveArtifactDir(scriptPath);
     final replayUpdate = argResults?['replay-update'] == true;
     final cliEnv = argResults?['env'] as List<String>? ?? const <String>[];
+    final recordPath = argResults?['record'] as String?;
+
+    if (recordPath != null) {
+      await device.startRecording(recordPath);
+    }
+    final recordingStarted = DateTime.now();
+    final chapters = <VideoChapter>[];
+
     final result = await runReplayScript(
       scriptPath: scriptPath,
       device: device,
@@ -79,6 +95,15 @@ class ReplayCommand extends AgentDeviceCommand {
       platform: argResults?['platform'] as String?,
       deviceLabel: argResults?['device'] as String?,
       onStep: (step) {
+        if (recordPath != null) {
+          final elapsed = DateTime.now().difference(recordingStarted);
+          final marker = step.ok ? '✓' : '✗';
+          chapters.add(VideoChapter(
+            title: '$marker step ${step.index + 1}: ${step.action.command}'
+                '${step.action.positionals.isNotEmpty ? ' ${step.action.positionals.first}' : ''}',
+            start: elapsed,
+          ));
+        }
         if (!asJson) {
           final marker = step.ok ? 'ok' : 'FAIL';
           stdout.writeln(
@@ -88,11 +113,29 @@ class ReplayCommand extends AgentDeviceCommand {
         }
       },
     );
+
+    if (recordPath != null) {
+      try {
+        await device.stopRecording(recordPath);
+        if (chapters.isNotEmpty) {
+          await injectMp4Chapters(recordPath, chapters);
+        }
+      } catch (e) {
+        if (!asJson) stderr.writeln('warning: recording finalization failed: $e');
+      }
+    }
+
+    final data = result.toJson();
+    if (recordPath != null) {
+      (data as Map<String, Object?>)['recordingPath'] = recordPath;
+    }
     emitResult(
-      result.toJson(),
-      humanFormat: (_) =>
-          '${result.ok ? '✓' : '✗'} ${result.passed}/${result.steps.length} '
-          'steps passed in ${result.durationMs}ms',
+      data,
+      humanFormat: (_) {
+        final rec = recordPath != null ? ' (recorded → $recordPath)' : '';
+        return '${result.ok ? '✓' : '✗'} ${result.passed}/${result.steps.length} '
+            'steps passed in ${result.durationMs}ms$rec';
+      },
     );
     return result.ok ? 0 : 1;
   }
