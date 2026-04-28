@@ -31,7 +31,11 @@ Future<AndroidSnapshotHelperInstallResult> ensureAndroidSnapshotHelper({
     packageName,
     timeoutMs,
   );
-  final reason = _getInstallReason(installPolicy, installedVersionCode, versionCode);
+  final reason = _getInstallReason(
+    installPolicy,
+    installedVersionCode,
+    versionCode,
+  );
 
   if (reason == 'current') {
     return AndroidSnapshotHelperInstallResult(
@@ -88,7 +92,15 @@ Future<int?> _readInstalledVersionCode(
   int? timeoutMs,
 ) async {
   final result = await adb(
-    ['shell', 'cmd', 'package', 'list', 'packages', '--show-versioncode', packageName],
+    [
+      'shell',
+      'cmd',
+      'package',
+      'list',
+      'packages',
+      '--show-versioncode',
+      packageName,
+    ],
     allowFailure: true,
     timeoutMs: timeoutMs,
   );
@@ -108,7 +120,11 @@ Future<AdbResult> _installAndroidSnapshotHelper(
   required String packageName,
   int? timeoutMs,
 }) async {
-  final result = await adb(installArgs, allowFailure: true, timeoutMs: timeoutMs);
+  final result = await adb(
+    installArgs,
+    allowFailure: true,
+    timeoutMs: timeoutMs,
+  );
   if (result.exitCode == 0 || !_isInstallUpdateIncompatible(result)) {
     return result;
   }
@@ -119,13 +135,20 @@ Future<AdbResult> _installAndroidSnapshotHelper(
     allowFailure: true,
     timeoutMs: timeoutMs,
   );
-  final retry = await adb(installArgs, allowFailure: true, timeoutMs: timeoutMs);
+  final retry = await adb(
+    installArgs,
+    allowFailure: true,
+    timeoutMs: timeoutMs,
+  );
   if (retry.exitCode == 0) return retry;
 
   final extraStderr = uninstall.stderr.isNotEmpty
       ? 'Previous uninstall stderr after INSTALL_FAILED_UPDATE_INCOMPATIBLE: ${uninstall.stderr}'
       : '';
-  final mergedStderr = [retry.stderr, extraStderr].where((s) => s.isNotEmpty).join('\n');
+  final mergedStderr = [
+    retry.stderr,
+    extraStderr,
+  ].where((s) => s.isNotEmpty).join('\n');
 
   return AdbResult(
     exitCode: retry.exitCode,
@@ -151,7 +174,9 @@ int? _parsePackageListVersionCode(String output, String packageName) {
 }
 
 bool _isInstallUpdateIncompatible(AdbResult result) {
-  return '${result.stdout}\n${result.stderr}'.contains('INSTALL_FAILED_UPDATE_INCOMPATIBLE');
+  return '${result.stdout}\n${result.stderr}'.contains(
+    'INSTALL_FAILED_UPDATE_INCOMPATIBLE',
+  );
 }
 
 String _getInstallReason(
@@ -159,8 +184,10 @@ String _getInstallReason(
   int? installedVersionCode,
   int requiredVersionCode,
 ) {
-  if (installPolicy == AndroidSnapshotHelperInstallPolicy.never) return 'skipped';
-  if (installPolicy == AndroidSnapshotHelperInstallPolicy.always) return 'forced';
+  if (installPolicy == AndroidSnapshotHelperInstallPolicy.never)
+    return 'skipped';
+  if (installPolicy == AndroidSnapshotHelperInstallPolicy.always)
+    return 'forced';
   if (installedVersionCode == null) return 'missing';
   return installedVersionCode < requiredVersionCode ? 'outdated' : 'current';
 }

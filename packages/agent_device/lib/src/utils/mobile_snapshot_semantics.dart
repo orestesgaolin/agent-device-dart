@@ -96,9 +96,7 @@ Map<int, HiddenContentHint> deriveMobileSnapshotHiddenContentHints(
   }
 
   final analysis = _analyzeMobileSnapshotVisibility(nodes);
-  return _toHiddenContentHints(
-    analysis.hintedContainers.directionsByContainer,
-  );
+  return _toHiddenContentHints(analysis.hintedContainers.directionsByContainer);
 }
 
 /// Check if a node is visible in its effective viewport (nearest scrollable
@@ -296,8 +294,7 @@ List<String> _buildOffscreenSummaryLines(
     if (group == null || group.isEmpty) continue;
 
     final labels = _uniqueLabels(group).take(3).map((l) => '"$l"').toList();
-    final noun =
-        group.length == 1 ? 'interactive item' : 'interactive items';
+    final noun = group.length == 1 ? 'interactive item' : 'interactive items';
     final suffix = labels.isNotEmpty ? ': ${labels.join(', ')}' : '';
     final dirName = direction == _Direction.above ? 'above' : 'below';
     lines.add('[off-screen $dirName] ${group.length} $noun$suffix');
@@ -414,8 +411,10 @@ void _mergeScrollIndicatorDirections(
     );
     if (container == null) continue;
 
-    final directions =
-        directionsByContainer.putIfAbsent(container.index, () => {});
+    final directions = directionsByContainer.putIfAbsent(
+      container.index,
+      () => {},
+    );
     directions.addAll(inferredDirections);
   }
 }

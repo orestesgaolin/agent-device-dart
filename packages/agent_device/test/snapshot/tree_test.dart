@@ -7,18 +7,8 @@ void main() {
     test('normalizeSnapshotTree repairs parent indices', () {
       final nodes = [
         RawSnapshotNode(index: 10, type: 'window', depth: 0),
-        RawSnapshotNode(
-          index: 20,
-          type: 'button',
-          depth: 1,
-          parentIndex: 10,
-        ),
-        RawSnapshotNode(
-          index: 30,
-          type: 'text',
-          depth: 2,
-          parentIndex: 20,
-        ),
+        RawSnapshotNode(index: 20, type: 'button', depth: 1, parentIndex: 10),
+        RawSnapshotNode(index: 30, type: 'text', depth: 2, parentIndex: 20),
       ];
 
       final normalized = normalizeSnapshotTree(nodes);
@@ -43,18 +33,10 @@ void main() {
     });
 
     test('displayNodeLabel extracts meaningful text', () {
-      final withLabel = SnapshotNode(
-        index: 0,
-        ref: 'e1',
-        label: 'Click me',
-      );
+      final withLabel = SnapshotNode(index: 0, ref: 'e1', label: 'Click me');
       expect(displayNodeLabel(withLabel), equals('Click me'));
 
-      final withValue = SnapshotNode(
-        index: 1,
-        ref: 'e2',
-        value: 'Input text',
-      );
+      final withValue = SnapshotNode(index: 1, ref: 'e2', value: 'Input text');
       expect(displayNodeLabel(withValue), equals('Input text'));
 
       final withIdentifier = SnapshotNode(

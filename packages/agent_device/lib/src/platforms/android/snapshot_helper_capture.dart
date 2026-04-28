@@ -41,11 +41,13 @@ Future<AndroidSnapshotHelperOutput> captureAndroidSnapshotWithHelper(
       options.waitForIdleTimeoutMs ?? androidSnapshotHelperWaitForIdleTimeoutMs;
   final timeoutMs = options.timeoutMs ?? 8000;
   final commandTimeoutMs =
-      options.commandTimeoutMs ?? timeoutMs + androidSnapshotHelperCommandOverheadMs;
+      options.commandTimeoutMs ??
+      timeoutMs + androidSnapshotHelperCommandOverheadMs;
   final maxDepth = options.maxDepth ?? 128;
   final maxNodes = options.maxNodes ?? 5000;
   final packageName = options.packageName ?? androidSnapshotHelperPackage;
-  final runner = options.instrumentationRunner ?? '$packageName/.SnapshotInstrumentation';
+  final runner =
+      options.instrumentationRunner ?? '$packageName/.SnapshotInstrumentation';
 
   final args = [
     'shell',
@@ -76,7 +78,9 @@ Future<AndroidSnapshotHelperOutput> captureAndroidSnapshotWithHelper(
   AndroidSnapshotHelperOutput output;
   try {
     // The helper can report structured ok=false details even when am exits non-zero.
-    output = parseAndroidSnapshotHelperOutput('${result.stdout}\n${result.stderr}');
+    output = parseAndroidSnapshotHelperOutput(
+      '${result.stdout}\n${result.stderr}',
+    );
   } catch (error) {
     throw AppError(
       AppErrorCodes.commandFailed,
@@ -180,10 +184,7 @@ Map<String, String> _readFinalHelperResult(List<Map<String, String>> records) {
     throw AppError(
       AppErrorCodes.commandFailed,
       _readHelperErrorMessage(finalResult),
-      details: {
-        'errorType': finalResult['errorType'],
-        'helper': finalResult,
-      },
+      details: {'errorType': finalResult['errorType'], 'helper': finalResult},
     );
   }
 
@@ -193,7 +194,8 @@ Map<String, String> _readFinalHelperResult(List<Map<String, String>> records) {
 String _readHelperErrorMessage(Map<String, String> finalResult) {
   final message = finalResult['message'];
   if (message != null && message != 'null') return message;
-  return finalResult['errorType'] ?? 'Android snapshot helper returned an error';
+  return finalResult['errorType'] ??
+      'Android snapshot helper returned an error';
 }
 
 String _decodeHelperXml(
@@ -243,10 +245,7 @@ int _validateChunkCount(List<_AndroidSnapshotHelperChunk> chunks) {
     throw AppError(
       AppErrorCodes.commandFailed,
       'Android snapshot helper returned incomplete XML chunks',
-      details: {
-        'expectedChunks': chunkCount,
-        'actualChunks': chunks.length,
-      },
+      details: {'expectedChunks': chunkCount, 'actualChunks': chunks.length},
     );
   }
   return chunkCount;
@@ -263,10 +262,7 @@ Map<int, String> _indexChunks(
       throw AppError(
         AppErrorCodes.commandFailed,
         'Android snapshot helper returned invalid chunk index',
-        details: {
-          'chunkIndex': index,
-          'expectedChunks': chunkCount,
-        },
+        details: {'chunkIndex': index, 'expectedChunks': chunkCount},
       );
     }
     if (chunksByIndex.containsKey(index)) {
@@ -281,7 +277,10 @@ Map<int, String> _indexChunks(
   return chunksByIndex;
 }
 
-List<List<int>> _readChunkPayloads(Map<int, String> chunksByIndex, int chunkCount) {
+List<List<int>> _readChunkPayloads(
+  Map<int, String> chunksByIndex,
+  int chunkCount,
+) {
   final payloads = <List<int>>[];
   for (var i = 0; i < chunkCount; i++) {
     final payloadBase64 = chunksByIndex[i];
@@ -289,10 +288,7 @@ List<List<int>> _readChunkPayloads(Map<int, String> chunksByIndex, int chunkCoun
       throw AppError(
         AppErrorCodes.commandFailed,
         'Android snapshot helper returned incomplete XML chunks',
-        details: {
-          'missingChunkIndex': i,
-          'expectedChunks': chunkCount,
-        },
+        details: {'missingChunkIndex': i, 'expectedChunks': chunkCount},
       );
     }
     payloads.add(base64.decode(payloadBase64));
@@ -300,7 +296,9 @@ List<List<int>> _readChunkPayloads(Map<int, String> chunksByIndex, int chunkCoun
   return payloads;
 }
 
-AndroidSnapshotHelperMetadata _readHelperMetadata(Map<String, String> finalResult) {
+AndroidSnapshotHelperMetadata _readHelperMetadata(
+  Map<String, String> finalResult,
+) {
   return AndroidSnapshotHelperMetadata(
     helperApiVersion: finalResult['helperApiVersion'],
     outputFormat: androidSnapshotHelperOutputFormat,
@@ -344,7 +342,10 @@ void _readInstrumentationRecordLine(
 ) {
   if (line.startsWith('INSTRUMENTATION_STATUS: ')) {
     state.currentStatus ??= {};
-    _readKeyValue(line.substring('INSTRUMENTATION_STATUS: '.length), state.currentStatus!);
+    _readKeyValue(
+      line.substring('INSTRUMENTATION_STATUS: '.length),
+      state.currentStatus!,
+    );
     return;
   }
   if (line.startsWith('INSTRUMENTATION_STATUS_CODE: ')) {
@@ -353,7 +354,10 @@ void _readInstrumentationRecordLine(
   }
   if (line.startsWith('INSTRUMENTATION_RESULT: ')) {
     state.currentResult ??= {};
-    _readKeyValue(line.substring('INSTRUMENTATION_RESULT: '.length), state.currentResult!);
+    _readKeyValue(
+      line.substring('INSTRUMENTATION_RESULT: '.length),
+      state.currentResult!,
+    );
     return;
   }
   if (line.startsWith('INSTRUMENTATION_CODE: ')) {

@@ -80,7 +80,9 @@ AndroidSnapshotHelperManifest parseAndroidSnapshotHelperManifest(
       'statusProtocol',
       androidSnapshotHelperProtocol,
     ),
-    installArgs: _readAndroidSnapshotHelperManifestInstallArgs(record['installArgs']),
+    installArgs: _readAndroidSnapshotHelperManifestInstallArgs(
+      record['installArgs'],
+    ),
   );
 }
 
@@ -100,7 +102,8 @@ List<String> readAndroidSnapshotHelperInstallArgs(
 ///
 /// Returns `null` if no bundled APK is found — callers fall back to
 /// uiautomator dump.
-Future<AndroidSnapshotHelperArtifact?> resolveBundledAndroidSnapshotHelperArtifact() async {
+Future<AndroidSnapshotHelperArtifact?>
+resolveBundledAndroidSnapshotHelperArtifact() async {
   final repoRoot = _findRepoRoot();
   if (repoRoot == null) return null;
 
@@ -110,15 +113,28 @@ Future<AndroidSnapshotHelperArtifact?> resolveBundledAndroidSnapshotHelperArtifa
   if (artifact != null) return artifact;
 
   // Auto-build: if the source exists but dist doesn't, build + package.
-  final buildScript = p.join(repoRoot, 'scripts', 'build-android-snapshot-helper.sh');
-  final packageScript = File(
-    p.join(repoRoot, 'agent-device', 'scripts', 'package-android-snapshot-helper.sh'),
+  final buildScript = p.join(
+    repoRoot,
+    'scripts',
+    'build-android-snapshot-helper.sh',
   );
-  final helperSource = Directory(p.join(repoRoot, 'android-snapshot-helper', 'src'));
+  final packageScript = File(
+    p.join(
+      repoRoot,
+      'agent-device',
+      'scripts',
+      'package-android-snapshot-helper.sh',
+    ),
+  );
+  final helperSource = Directory(
+    p.join(repoRoot, 'android-snapshot-helper', 'src'),
+  );
   if (!helperSource.existsSync()) return null;
-  if (!File(buildScript).existsSync() && !packageScript.existsSync()) return null;
+  if (!File(buildScript).existsSync() && !packageScript.existsSync())
+    return null;
 
-  final sdkRoot = Platform.environment['ANDROID_HOME'] ??
+  final sdkRoot =
+      Platform.environment['ANDROID_HOME'] ??
       Platform.environment['ANDROID_SDK_ROOT'];
   if (sdkRoot == null || sdkRoot.isEmpty) return null;
 
@@ -126,7 +142,10 @@ Future<AndroidSnapshotHelperArtifact?> resolveBundledAndroidSnapshotHelperArtifa
     stderr.writeln('[snapshot] auto-building Android snapshot helper APK…');
     if (packageScript.existsSync()) {
       final r = await runCmd('sh', [
-        packageScript.path, '0.0.1', 'local', helperDir,
+        packageScript.path,
+        '0.0.1',
+        'local',
+        helperDir,
       ], const ExecOptions(allowFailure: true));
       if (r.exitCode != 0) {
         stderr.writeln('[snapshot] helper build failed (exit ${r.exitCode})');
@@ -134,7 +153,9 @@ Future<AndroidSnapshotHelperArtifact?> resolveBundledAndroidSnapshotHelperArtifa
       }
     } else {
       final r = await runCmd('sh', [
-        buildScript, '0.0.1', helperDir,
+        buildScript,
+        '0.0.1',
+        helperDir,
       ], const ExecOptions(allowFailure: true));
       if (r.exitCode != 0) {
         stderr.writeln('[snapshot] helper build failed (exit ${r.exitCode})');
@@ -169,9 +190,7 @@ AndroidSnapshotHelperArtifact? _readBundledArtifact(String helperDir) {
 
     final manifestFile = manifestFiles.first;
     final rawJson = manifestFile.readAsStringSync();
-    final manifest = parseAndroidSnapshotHelperManifest(
-      jsonDecode(rawJson),
-    );
+    final manifest = parseAndroidSnapshotHelperManifest(jsonDecode(rawJson));
 
     final apkName =
         manifest.assetName ??
@@ -180,10 +199,7 @@ AndroidSnapshotHelperArtifact? _readBundledArtifact(String helperDir) {
 
     if (!File(apkPath).existsSync()) return null;
 
-    return AndroidSnapshotHelperArtifact(
-      apkPath: apkPath,
-      manifest: manifest,
-    );
+    return AndroidSnapshotHelperArtifact(apkPath: apkPath, manifest: manifest);
   } catch (_) {
     return null;
   }
@@ -242,7 +258,9 @@ List<String> _readAndroidSnapshotHelperManifestInstallArgs(Object? value) {
       'Android snapshot helper manifest installArgs must not contain null bytes.',
     );
   }
-  final unsupported = installArgs.skip(1).where((arg) => !_allowedInstallFlags.contains(arg));
+  final unsupported = installArgs
+      .skip(1)
+      .where((arg) => !_allowedInstallFlags.contains(arg));
   if (unsupported.isNotEmpty) {
     throw AppError(
       AppErrorCodes.invalidArgs,

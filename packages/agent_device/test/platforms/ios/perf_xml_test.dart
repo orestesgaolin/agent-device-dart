@@ -14,8 +14,14 @@ void main() {
 
     setUpAll(() {
       final fixture = File(
-        p.join(_findPackageRoot(), 'test', 'platforms', 'ios', 'fixtures',
-            'xctrace_activity_monitor.xml'),
+        p.join(
+          _findPackageRoot(),
+          'test',
+          'platforms',
+          'ios',
+          'fixtures',
+          'xctrace_activity_monitor.xml',
+        ),
       );
       xml = fixture.readAsStringSync();
     });

@@ -90,9 +90,7 @@ void main() {
     );
 
     test('deriveAndroidScrollableContentHints ignores nodes without rects', () {
-      final nodes = [
-        RawSnapshotNode(index: 0, type: 'ScrollView', rect: null),
-      ];
+      final nodes = [RawSnapshotNode(index: 0, type: 'ScrollView', rect: null)];
 
       final hints = deriveAndroidScrollableContentHints(nodes, '');
 

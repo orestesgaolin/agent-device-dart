@@ -3,7 +3,8 @@
 import 'dart:io' show stderr, Platform;
 
 import '../../snapshot/snapshot.dart';
-import '../../utils/errors.dart' show AppError, AppErrorCodes, agentDeviceVerbose;
+import '../../utils/errors.dart'
+    show AppError, AppErrorCodes, agentDeviceVerbose;
 import '../../utils/exec.dart';
 import '../../utils/mobile_snapshot_semantics.dart';
 import '../../utils/retry.dart';
@@ -19,7 +20,8 @@ import 'ui_hierarchy.dart';
 
 const _uiHierarchyDumpTimeoutMs = 8000;
 const _helperInstallTimeoutMs = 30000;
-const _helperCommandTimeoutMs = _uiHierarchyDumpTimeoutMs + androidSnapshotHelperCommandOverheadMs;
+const _helperCommandTimeoutMs =
+    _uiHierarchyDumpTimeoutMs + androidSnapshotHelperCommandOverheadMs;
 
 /// Options for Android snapshot capture.
 class AndroidSnapshotOptions {
@@ -31,7 +33,8 @@ class AndroidSnapshotOptions {
   const AndroidSnapshotOptions({
     this.snapshot = const SnapshotOptions(),
     this.helperArtifact,
-    this.helperInstallPolicy = AndroidSnapshotHelperInstallPolicy.missingOrOutdated,
+    this.helperInstallPolicy =
+        AndroidSnapshotHelperInstallPolicy.missingOrOutdated,
     this.helperAdb,
   });
 }
@@ -60,7 +63,11 @@ snapshotAndroid(
   final snapshotOptions = options.snapshot;
 
   if (!(snapshotOptions.interactiveOnly ?? false)) {
-    final parsed = parseUiHierarchy(xml, androidSnapshotMaxNodes, snapshotOptions);
+    final parsed = parseUiHierarchy(
+      xml,
+      androidSnapshotMaxNodes,
+      snapshotOptions,
+    );
     final nativeHints = await _deriveScrollableContentHintsIfNeeded(
       serial,
       parsed.nodes,
@@ -131,13 +138,17 @@ _captureAndroidUiHierarchy(
   String serial,
   AndroidSnapshotOptions options,
 ) async {
-  final helper = await _resolveAndroidSnapshotHelperArtifact(options.helperArtifact);
+  final helper = await _resolveAndroidSnapshotHelperArtifact(
+    options.helperArtifact,
+  );
   final artifact = helper.$1;
 
   if (artifact != null) {
     try {
-      _log('[snapshot] using helper v${artifact.manifest.version} '
-          '(${artifact.apkPath})');
+      _log(
+        '[snapshot] using helper v${artifact.manifest.version} '
+        '(${artifact.apkPath})',
+      );
       final adb = options.helperAdb ?? _createDeviceAdbExecutor(serial);
       final install = await ensureAndroidSnapshotHelper(
         adb: adb,
@@ -145,8 +156,10 @@ _captureAndroidUiHierarchy(
         installPolicy: options.helperInstallPolicy,
         timeoutMs: _helperInstallTimeoutMs,
       );
-      _log('[snapshot] helper install: ${install.reason}'
-          '${install.installed ? ' (freshly installed)' : ' (already on device)'}');
+      _log(
+        '[snapshot] helper install: ${install.reason}'
+        '${install.installed ? ' (freshly installed)' : ' (already on device)'}',
+      );
       final capture = await captureAndroidSnapshotWithHelper(
         AndroidSnapshotHelperCaptureOptions(
           adb: adb,
@@ -157,11 +170,13 @@ _captureAndroidUiHierarchy(
           commandTimeoutMs: _helperCommandTimeoutMs,
         ),
       );
-      _log('[snapshot] helper capture: '
-          'mode=${capture.metadata.captureMode} '
-          'windows=${capture.metadata.windowCount} '
-          'nodes=${capture.metadata.nodeCount} '
-          '${capture.metadata.elapsedMs}ms');
+      _log(
+        '[snapshot] helper capture: '
+        'mode=${capture.metadata.captureMode} '
+        'windows=${capture.metadata.windowCount} '
+        'nodes=${capture.metadata.nodeCount} '
+        '${capture.metadata.elapsedMs}ms',
+      );
       return (
         xml: capture.xml,
         metadata: AndroidSnapshotBackendMetadata(
@@ -188,8 +203,10 @@ _captureAndroidUiHierarchy(
     }
   }
 
-  _log('[snapshot] no helper artifact available'
-      '${helper.$2 != null ? ' (${helper.$2})' : ''}, using uiautomator');
+  _log(
+    '[snapshot] no helper artifact available'
+    '${helper.$2 != null ? ' (${helper.$2})' : ''}, using uiautomator',
+  );
   return _captureStockUiHierarchy(serial, fallbackReason: helper.$2);
 }
 
@@ -205,10 +222,7 @@ _resolveAndroidSnapshotHelperArtifact(
 }
 
 Future<({String xml, AndroidSnapshotBackendMetadata metadata})>
-_captureStockUiHierarchy(
-  String serial, {
-  String? fallbackReason,
-}) async {
+_captureStockUiHierarchy(String serial, {String? fallbackReason}) async {
   return (
     xml: await dumpUiHierarchy(serial),
     metadata: AndroidSnapshotBackendMetadata(
@@ -219,14 +233,15 @@ _captureStockUiHierarchy(
 }
 
 AndroidAdbExecutor _createDeviceAdbExecutor(String serial) {
-  return (List<String> args, {bool allowFailure = false, int? timeoutMs}) async {
+  return (
+    List<String> args, {
+    bool allowFailure = false,
+    int? timeoutMs,
+  }) async {
     final result = await runCmd(
       'adb',
       adbArgs(serial, args),
-      ExecOptions(
-        allowFailure: allowFailure,
-        timeoutMs: timeoutMs,
-      ),
+      ExecOptions(allowFailure: allowFailure, timeoutMs: timeoutMs),
     );
     return AdbResult(
       exitCode: result.exitCode,

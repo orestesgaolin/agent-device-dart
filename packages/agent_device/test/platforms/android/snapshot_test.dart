@@ -30,10 +30,13 @@ void main() {
     // These are covered by live/integration tests using real adb output.
     // The implementation is in _applyHiddenContentHintsToInteractiveNodes
     // and deriveMobileSnapshotHiddenContentHints (fallback path).
-    test('_applyHiddenContentHintsToNodes and _applyHiddenContentHintsToInteractiveNodes are wired', () {
-      // Verify the functions exist and are reachable via the public surface.
-      // Upstream 77365ab7: these were no-op stubs; they are now real implementations.
-      expect(snapshotAndroid, isA<Function>());
-    });
+    test(
+      '_applyHiddenContentHintsToNodes and _applyHiddenContentHintsToInteractiveNodes are wired',
+      () {
+        // Verify the functions exist and are reachable via the public surface.
+        // Upstream 77365ab7: these were no-op stubs; they are now real implementations.
+        expect(snapshotAndroid, isA<Function>());
+      },
+    );
   });
 }

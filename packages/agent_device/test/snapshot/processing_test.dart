@@ -29,12 +29,7 @@ void main() {
       final nodes = [
         RawSnapshotNode(index: 0, type: 'window', depth: 0),
         RawSnapshotNode(index: 1, type: 'group', depth: 1),
-        RawSnapshotNode(
-          index: 2,
-          type: 'button',
-          label: 'Click',
-          depth: 2,
-        ),
+        RawSnapshotNode(index: 2, type: 'button', label: 'Click', depth: 2),
       ];
 
       final pruned = pruneGroupNodes(nodes);
@@ -88,11 +83,7 @@ void main() {
       );
       expect(extractNodeText(node), equals('Label'));
 
-      final withoutLabel = SnapshotNode(
-        index: 1,
-        ref: 'e2',
-        value: 'Value',
-      );
+      final withoutLabel = SnapshotNode(index: 1, ref: 'e2', value: 'Value');
       expect(extractNodeText(withoutLabel), equals('Value'));
 
       final empty = SnapshotNode(index: 2, ref: 'e3');

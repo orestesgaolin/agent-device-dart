@@ -78,7 +78,8 @@ class AndroidSnapshotBackendMetadata {
     if (helperApiVersion != null) 'helperApiVersion': helperApiVersion,
     if (fallbackReason != null) 'fallbackReason': fallbackReason,
     if (installReason != null) 'installReason': installReason,
-    if (waitForIdleTimeoutMs != null) 'waitForIdleTimeoutMs': waitForIdleTimeoutMs,
+    if (waitForIdleTimeoutMs != null)
+      'waitForIdleTimeoutMs': waitForIdleTimeoutMs,
     if (timeoutMs != null) 'timeoutMs': timeoutMs,
     if (maxDepth != null) 'maxDepth': maxDepth,
     if (maxNodes != null) 'maxNodes': maxNodes,

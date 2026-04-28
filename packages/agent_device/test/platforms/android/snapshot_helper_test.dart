@@ -15,7 +15,8 @@ const _manifest = AndroidSnapshotHelperManifest(
   name: 'android-snapshot-helper',
   version: '0.13.3',
   apkUrl: null,
-  sha256: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', // 64 'a's
+  sha256:
+      'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', // 64 'a's
   packageName: 'com.callstack.agentdevice.snapshothelper',
   versionCode: 13003,
   instrumentationRunner:
@@ -238,8 +239,9 @@ void main() {
 
   group('ensureAndroidSnapshotHelper', () {
     test('installs when missing and skips current version', () async {
-      final tmpDir =
-          await Directory.systemTemp.createTemp('snapshot-helper-install-');
+      final tmpDir = await Directory.systemTemp.createTemp(
+        'snapshot-helper-install-',
+      );
       final apkPath = '${tmpDir.path}/helper.apk';
       await File(apkPath).writeAsString('helper-apk');
       final localManifest = AndroidSnapshotHelperManifest(
@@ -392,7 +394,9 @@ void main() {
 
   group('verifyAndroidSnapshotHelperArtifact', () {
     test('rejects checksum mismatch', () async {
-      final tmpDir = await Directory.systemTemp.createTemp('snapshot-helper-sha-');
+      final tmpDir = await Directory.systemTemp.createTemp(
+        'snapshot-helper-sha-',
+      );
       final apkPath = '${tmpDir.path}/helper.apk';
       await File(apkPath).writeAsString('actual');
 
@@ -466,14 +470,28 @@ void main() {
         ),
       );
 
-      expect(capturedArgs, equals([
-        'shell', 'am', 'instrument', '-w',
-        '-e', 'waitForIdleTimeoutMs', '10',
-        '-e', 'timeoutMs', '9000',
-        '-e', 'maxDepth', '64',
-        '-e', 'maxNodes', '100',
-        'com.callstack.agentdevice.snapshothelper/.SnapshotInstrumentation',
-      ]));
+      expect(
+        capturedArgs,
+        equals([
+          'shell',
+          'am',
+          'instrument',
+          '-w',
+          '-e',
+          'waitForIdleTimeoutMs',
+          '10',
+          '-e',
+          'timeoutMs',
+          '9000',
+          '-e',
+          'maxDepth',
+          '64',
+          '-e',
+          'maxNodes',
+          '100',
+          'com.callstack.agentdevice.snapshothelper/.SnapshotInstrumentation',
+        ]),
+      );
       expect(capturedTimeoutMs, equals(14000)); // 9000 + 5000 overhead
       expect(result.xml, equals('<hierarchy><node index="0" /></hierarchy>'));
       expect(result.metadata.maxNodes, equals(100));
@@ -528,11 +546,7 @@ void main() {
                   'Android snapshot helper failed before returning parseable output',
                 ),
               )
-              .having(
-                (e) => e.details?['exitCode'],
-                'exitCode',
-                equals(1),
-              )
+              .having((e) => e.details?['exitCode'], 'exitCode', equals(1))
               .having(
                 (e) => e.details?['stderr'],
                 'stderr',
@@ -566,7 +580,10 @@ void main() {
       };
 
       expect(
-        () => parseAndroidSnapshotHelperManifest({...base, 'outputFormat': 'json'}),
+        () => parseAndroidSnapshotHelperManifest({
+          ...base,
+          'outputFormat': 'json',
+        }),
         throwsA(
           isA<AppError>().having(
             (e) => e.message,
@@ -577,8 +594,10 @@ void main() {
       );
 
       expect(
-        () =>
-            parseAndroidSnapshotHelperManifest({...base, 'installArgs': ['shell']}),
+        () => parseAndroidSnapshotHelperManifest({
+          ...base,
+          'installArgs': ['shell'],
+        }),
         throwsA(
           isA<AppError>().having(
             (e) => e.message,
@@ -603,7 +622,10 @@ void main() {
       );
 
       expect(
-        () => parseAndroidSnapshotHelperManifest({...base, 'sha256': 'not-a-sha'}),
+        () => parseAndroidSnapshotHelperManifest({
+          ...base,
+          'sha256': 'not-a-sha',
+        }),
         throwsA(
           isA<AppError>().having(
             (e) => e.message,

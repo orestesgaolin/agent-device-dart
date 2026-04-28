@@ -29,11 +29,12 @@ class AdbResult {
 ///
 /// Mirrors [AndroidAdbExecutor] in TS: takes positional args and optional
 /// flags, returns exit code + captured stdout/stderr.
-typedef AndroidAdbExecutor = Future<AdbResult> Function(
-  List<String> args, {
-  bool allowFailure,
-  int? timeoutMs,
-});
+typedef AndroidAdbExecutor =
+    Future<AdbResult> Function(
+      List<String> args, {
+      bool allowFailure,
+      int? timeoutMs,
+    });
 
 /// Parsed manifest describing the helper APK artifact.
 class AndroidSnapshotHelperManifest {
@@ -84,11 +85,7 @@ class AndroidSnapshotHelperArtifact {
 }
 
 /// Install policy for the snapshot helper.
-enum AndroidSnapshotHelperInstallPolicy {
-  missingOrOutdated,
-  always,
-  never,
-}
+enum AndroidSnapshotHelperInstallPolicy { missingOrOutdated, always, never }
 
 /// Result of an ensure-install attempt.
 class AndroidSnapshotHelperInstallResult {
@@ -166,7 +163,10 @@ class AndroidSnapshotHelperOutput {
   final String xml;
   final AndroidSnapshotHelperMetadata metadata;
 
-  const AndroidSnapshotHelperOutput({required this.xml, required this.metadata});
+  const AndroidSnapshotHelperOutput({
+    required this.xml,
+    required this.metadata,
+  });
 }
 
 /// Parsed snapshot nodes + metadata from the helper.
