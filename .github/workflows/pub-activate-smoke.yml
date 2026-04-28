@@ -71,6 +71,7 @@ jobs:
               path: ${{ github.workspace }}/packages/agent_device
           YAML
           dart pub get
+          mkdir -p bin
           cat > bin/check.dart << 'DART'
           import 'dart:io';
           import 'dart:isolate';
