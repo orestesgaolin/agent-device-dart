@@ -1,0 +1,4 @@
+# Build caches inside bundled native assets
+lib/src/native/ios-runner/**/build/
+lib/src/native/android-snapshot-helper/source/build/
+lib/src/native/android-snapshot-helper/source/dist/

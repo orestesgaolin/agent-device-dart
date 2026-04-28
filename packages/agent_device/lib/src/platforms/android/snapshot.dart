@@ -156,10 +156,18 @@ _captureAndroidUiHierarchy(
         installPolicy: options.helperInstallPolicy,
         timeoutMs: _helperInstallTimeoutMs,
       );
-      _log(
-        '[snapshot] helper install: ${install.reason}'
-        '${install.installed ? ' (freshly installed)' : ' (already on device)'}',
-      );
+      if (install.installed) {
+        _info(
+          '[snapshot] installed Android snapshot helper APK '
+          '(${artifact.manifest.packageName} v${artifact.manifest.versionCode}, '
+          'reason: ${install.reason})',
+        );
+      } else {
+        _log(
+          '[snapshot] helper already on device '
+          '(v${install.installedVersionCode ?? "?"})',
+        );
+      }
       final capture = await captureAndroidSnapshotWithHelper(
         AndroidSnapshotHelperCaptureOptions(
           adb: adb,
@@ -203,8 +211,50 @@ _captureAndroidUiHierarchy(
     }
   }
 
+  // No local artifact — but the helper may already be installed on the
+  // device from a previous session. Try capturing with the default
+  // package/runner before falling back to UIAutomator.
+  final adb = options.helperAdb ?? _createDeviceAdbExecutor(serial);
+  try {
+    final installed = await _isHelperInstalledOnDevice(adb);
+    if (installed) {
+      _log('[snapshot] no local artifact, but helper is on device — using it');
+      final capture = await captureAndroidSnapshotWithHelper(
+        AndroidSnapshotHelperCaptureOptions(
+          adb: adb,
+          packageName: androidSnapshotHelperPackage,
+          instrumentationRunner: androidSnapshotHelperRunner,
+          waitForIdleTimeoutMs: androidSnapshotHelperWaitForIdleTimeoutMs,
+          timeoutMs: _uiHierarchyDumpTimeoutMs,
+          commandTimeoutMs: _helperCommandTimeoutMs,
+        ),
+      );
+      _log(
+        '[snapshot] helper capture: '
+        'mode=${capture.metadata.captureMode} '
+        'windows=${capture.metadata.windowCount} '
+        'nodes=${capture.metadata.nodeCount} '
+        '${capture.metadata.elapsedMs}ms',
+      );
+      return (
+        xml: capture.xml,
+        metadata: AndroidSnapshotBackendMetadata(
+          backend: 'android-helper',
+          captureMode: capture.metadata.captureMode,
+          windowCount: capture.metadata.windowCount,
+          nodeCount: capture.metadata.nodeCount,
+          helperTruncated: capture.metadata.truncated,
+          elapsedMs: capture.metadata.elapsedMs,
+        ),
+      );
+    }
+  } catch (error) {
+    final reason = (error is AppError) ? error.message : error.toString();
+    _log('[snapshot] on-device helper failed: $reason');
+  }
+
   _log(
-    '[snapshot] no helper artifact available'
+    '[snapshot] no helper available'
     '${helper.$2 != null ? ' (${helper.$2})' : ''}, using uiautomator',
   );
   return _captureStockUiHierarchy(serial, fallbackReason: helper.$2);
@@ -558,4 +608,21 @@ bool get _verbose =>
 
 void _log(String message) {
   if (_verbose) stderr.writeln(message);
+}
+
+void _info(String message) {
+  stderr.writeln(message);
+}
+
+Future<bool> _isHelperInstalledOnDevice(AndroidAdbExecutor adb) async {
+  try {
+    final r = await adb(
+      ['shell', 'pm', 'list', 'packages', androidSnapshotHelperPackage],
+      allowFailure: true,
+      timeoutMs: 5000,
+    );
+    return r.stdout.contains('package:$androidSnapshotHelperPackage');
+  } catch (_) {
+    return false;
+  }
 }

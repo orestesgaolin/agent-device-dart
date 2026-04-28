@@ -10,6 +10,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:agent_device/src/native/resolve.dart';
 import 'package:agent_device/src/utils/exec.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
@@ -93,81 +94,87 @@ List<String> readAndroidSnapshotHelperInstallArgs(
   return _readAndroidSnapshotHelperManifestInstallArgs(manifest.installArgs);
 }
 
-/// Resolve the bundled APK artifact from `android-snapshot-helper/dist/`
-/// relative to the repo root.
+/// Resolve the bundled Android snapshot helper artifact.
 ///
-/// Walks up the directory tree from this file's package root to find the
-/// `android-snapshot-helper/dist/` directory, reads the manifest JSON, then
-/// returns a resolved artifact.
+/// Resolution order (via the unified native asset resolver):
+/// 1. Package URI (`lib/src/native/android-snapshot-helper/`)
+/// 2. Exe-relative (`<prefix>/share/agent-device/android-snapshot-helper/`)
+/// 3. Repo-root walk (`android-snapshot-helper/dist/`)
 ///
-/// Returns `null` if no bundled APK is found — callers fall back to
+/// If no pre-built APK is found but source + build scripts are available,
+/// auto-builds the helper APK on demand.
+///
+/// Returns `null` if no artifact is available — callers fall back to
 /// uiautomator dump.
 Future<AndroidSnapshotHelperArtifact?>
 resolveBundledAndroidSnapshotHelperArtifact() async {
-  final repoRoot = _findRepoRoot();
-  if (repoRoot == null) return null;
-
-  final helperDir = p.join(repoRoot, 'android-snapshot-helper', 'dist');
-
-  var artifact = _readBundledArtifact(helperDir);
-  if (artifact != null) return artifact;
-
-  // Auto-build: if the source exists but dist doesn't, build + package.
-  final buildScript = p.join(
-    repoRoot,
-    'scripts',
-    'build-android-snapshot-helper.sh',
+  // Try pre-built APK from the unified resolver.
+  final apkPath = await resolveNativeAsset(
+    'android-snapshot-helper/android-snapshot-helper.apk',
   );
-  final packageScript = File(
-    p.join(
-      repoRoot,
-      'agent-device',
-      'scripts',
-      'package-android-snapshot-helper.sh',
-    ),
+  final manifestPath = await resolveNativeAsset(
+    'android-snapshot-helper/android-snapshot-helper.manifest.json',
   );
-  final helperSource = Directory(
-    p.join(repoRoot, 'android-snapshot-helper', 'src'),
-  );
-  if (!helperSource.existsSync()) return null;
-  if (!File(buildScript).existsSync() && !packageScript.existsSync())
-    return null;
+  if (apkPath != null && manifestPath != null) {
+    try {
+      final manifest = parseAndroidSnapshotHelperManifest(
+        jsonDecode(File(manifestPath).readAsStringSync()),
+      );
+      return AndroidSnapshotHelperArtifact(apkPath: apkPath, manifest: manifest);
+    } catch (_) {}
+  }
 
-  final sdkRoot =
-      Platform.environment['ANDROID_HOME'] ??
+  // Try versioned APK from repo-root dist/ (legacy layout).
+  final helperDir = await resolveNativeAssetDir('android-snapshot-helper');
+  if (helperDir != null) {
+    final distDir = Directory(p.join(helperDir, 'dist'));
+    if (distDir.existsSync()) {
+      final artifact = _readBundledArtifact(distDir.path);
+      if (artifact != null) return artifact;
+    }
+    final artifact = _readBundledArtifact(helperDir);
+    if (artifact != null) return artifact;
+  }
+
+  // Auto-build from source if available.
+  return _autoBuildHelperIfPossible();
+}
+
+Future<AndroidSnapshotHelperArtifact?> _autoBuildHelperIfPossible() async {
+  final helperDir = await resolveNativeAssetDir('android-snapshot-helper');
+  if (helperDir == null) return null;
+
+  // Look for source + build script.
+  final sourceDir = Directory(p.join(helperDir, 'source'));
+  final sourceAlt = Directory(p.join(helperDir, 'src'));
+  if (!sourceDir.existsSync() && !sourceAlt.existsSync()) return null;
+
+  final packageScript = File(p.join(helperDir, 'package-android-snapshot-helper.sh'));
+  final buildScript = File(p.join(helperDir, 'build-android-snapshot-helper.sh'));
+  if (!packageScript.existsSync() && !buildScript.existsSync()) return null;
+
+  final sdkRoot = Platform.environment['ANDROID_HOME'] ??
       Platform.environment['ANDROID_SDK_ROOT'];
   if (sdkRoot == null || sdkRoot.isEmpty) return null;
 
+  final distDir = p.join(helperDir, 'dist');
   try {
     stderr.writeln('[snapshot] auto-building Android snapshot helper APK…');
-    if (packageScript.existsSync()) {
-      final r = await runCmd('sh', [
-        packageScript.path,
-        '0.0.1',
-        'local',
-        helperDir,
-      ], const ExecOptions(allowFailure: true));
-      if (r.exitCode != 0) {
-        stderr.writeln('[snapshot] helper build failed (exit ${r.exitCode})');
-        return null;
-      }
-    } else {
-      final r = await runCmd('sh', [
-        buildScript,
-        '0.0.1',
-        helperDir,
-      ], const ExecOptions(allowFailure: true));
-      if (r.exitCode != 0) {
-        stderr.writeln('[snapshot] helper build failed (exit ${r.exitCode})');
-        return null;
-      }
+    final script = packageScript.existsSync() ? packageScript : buildScript;
+    final args = packageScript.existsSync()
+        ? [script.path, '0.0.1', 'local', distDir]
+        : [script.path, '0.0.1', distDir];
+    final r = await runCmd('sh', args, const ExecOptions(allowFailure: true));
+    if (r.exitCode != 0) {
+      stderr.writeln('[snapshot] helper build failed (exit ${r.exitCode})');
+      return null;
     }
     stderr.writeln('[snapshot] helper build complete');
   } catch (_) {
     return null;
   }
 
-  return _readBundledArtifact(helperDir);
+  return _readBundledArtifact(distDir);
 }
 
 AndroidSnapshotHelperArtifact? _readBundledArtifact(String helperDir) {
@@ -208,35 +215,6 @@ AndroidSnapshotHelperArtifact? _readBundledArtifact(String helperDir) {
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
-String? _findRepoRoot() {
-  // Try multiple starting points so `ad` works from any CWD:
-  // 1. Walk up from CWD (works when run from repo root or subdir)
-  // 2. Walk up from the Dart script/binary location (works when `ad`
-  //    is compiled or activated globally)
-  for (final start in _candidateRoots()) {
-    var dir = start;
-    for (var i = 0; i < 10; i++) {
-      if (Directory(p.join(dir.path, 'android-snapshot-helper')).existsSync()) {
-        return dir.path;
-      }
-      final parent = dir.parent;
-      if (parent.path == dir.path) break;
-      dir = parent;
-    }
-  }
-  return null;
-}
-
-Iterable<Directory> _candidateRoots() sync* {
-  yield Directory.current;
-  try {
-    yield Directory(p.dirname(Platform.resolvedExecutable));
-  } catch (_) {}
-  try {
-    yield Directory(p.dirname(Platform.script.toFilePath()));
-  } catch (_) {}
-}
 
 Future<String> _sha256File(String filePath) async {
   final input = File(filePath).openRead();

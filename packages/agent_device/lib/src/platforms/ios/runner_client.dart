@@ -30,6 +30,7 @@ library;
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:agent_device/src/native/resolve.dart';
 import 'package:agent_device/src/utils/errors.dart';
 import 'package:agent_device/src/utils/exec.dart';
 import 'package:path/path.dart' as p;
@@ -135,6 +136,7 @@ class IosRunnerClient {
         override ?? Platform.environment['AGENT_DEVICE_IOS_RUNNER_BUILD_DIR'];
     if (env != null && env.trim().isNotEmpty) return env.trim();
     final buildSubdir = kind == IosRunnerKind.device ? 'build-device' : 'build';
+    // Walk up from CWD looking for ios-runner build products.
     var dir = Directory.current;
     for (var i = 0; i < 8; i++) {
       final candidate = Directory(
@@ -145,6 +147,10 @@ class IosRunnerClient {
       if (parent.path == dir.path) break;
       dir = parent;
     }
+    // Check bundled native asset build output (ios-runner/build/ inside the
+    // resolved native asset dir).
+    // Note: this is sync so we can't use resolveNativeAssetDir here.
+    // The auto-build in _ensureXctestrun handles the async resolution.
     return p.join(
       Directory.current.path,
       'ios-runner',
@@ -214,20 +220,29 @@ class IosRunnerClient {
     } on AppError {
       if (kind == IosRunnerKind.device) rethrow;
     }
-    final projectRoot = _findProjectRoot();
+    final projectRoot = await _findProjectRoot();
     if (projectRoot == null) {
       return findXctestrun(productsDir, kind: kind);
     }
-    final projectPath = p.join(
+    // The bundled native asset layout has AgentDeviceRunner/ directly inside
+    // the ios-runner dir; the repo layout has ios-runner/AgentDeviceRunner/.
+    var projectPath = p.join(
       projectRoot,
-      'ios-runner',
       'AgentDeviceRunner',
       'AgentDeviceRunner.xcodeproj',
     );
     if (!Directory(projectPath).existsSync()) {
+      projectPath = p.join(
+        projectRoot,
+        'ios-runner',
+        'AgentDeviceRunner',
+        'AgentDeviceRunner.xcodeproj',
+      );
+    }
+    if (!Directory(projectPath).existsSync()) {
       return findXctestrun(productsDir, kind: kind);
     }
-    final derivedDataPath = p.join(projectRoot, 'ios-runner', 'build');
+    final derivedDataPath = p.join(projectRoot, 'build');
     _debugLog('[runner] auto-building iOS runner…');
     final result = await runCmd('xcodebuild', [
       'build-for-testing',
@@ -255,7 +270,11 @@ class IosRunnerClient {
     return findXctestrun(productsDir, kind: kind);
   }
 
-  static String? _findProjectRoot() {
+  static Future<String?> _findProjectRoot() async {
+    // Check if ios-runner source is bundled in the package's native assets.
+    final bundled = await resolveNativeAssetDir('ios-runner');
+    if (bundled != null) return bundled;
+    // Fall back to walking up from CWD (repo development layout).
     var dir = Directory.current;
     for (var i = 0; i < 8; i++) {
       if (Directory(p.join(dir.path, 'ios-runner')).existsSync()) {
