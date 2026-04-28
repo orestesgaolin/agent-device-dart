@@ -14,13 +14,8 @@ void main() {
 
     setUpAll(() {
       final fixture = File(
-        p.join(
-          'test',
-          'platforms',
-          'ios',
-          'fixtures',
-          'xctrace_activity_monitor.xml',
-        ),
+        p.join(_findPackageRoot(), 'test', 'platforms', 'ios', 'fixtures',
+            'xctrace_activity_monitor.xml'),
       );
       xml = fixture.readAsStringSync();
     });
@@ -196,4 +191,23 @@ void main() {
       );
     });
   });
+}
+
+String _findPackageRoot() {
+  var dir = Directory.current;
+  for (var i = 0; i < 10; i++) {
+    if (File(p.join(dir.path, 'pubspec.yaml')).existsSync() &&
+        Directory(p.join(dir.path, 'test', 'platforms')).existsSync()) {
+      return dir.path;
+    }
+    final nested = Directory(p.join(dir.path, 'packages', 'agent_device'));
+    if (nested.existsSync() &&
+        File(p.join(nested.path, 'pubspec.yaml')).existsSync()) {
+      return nested.path;
+    }
+    final parent = dir.parent;
+    if (parent.path == dir.path) break;
+    dir = parent;
+  }
+  return Directory.current.path;
 }
