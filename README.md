@@ -1,47 +1,14 @@
 # agent-device (Dart)
 
-Dart port of the [`agent-device`](https://github.com/callstackincubator/agent-device) TypeScript CLI for driving mobile UI automation, taking snapshots, capturing logs and video, and running `.ad` replay scripts against iOS and Android devices.
+Device automation CLI for AI agents to interact with iOS and Android devices. This is a Dart port of the TypeScript [`agent-device`](https://github.com/callstackincubator/agent-device) CLI.
+
+Works as CLI and Dart library for driving mobile UI automation, taking snapshots, capturing logs and video, and running `.ad` replay scripts against iOS and Android devices.
 
 Ships as both:
 
 - a **CLI** (`agent-device` / `ad`) for day-to-day shell use, and
-- a **Dart library** (`package:agent_device`) you can import into any
-  Dart / Flutter project to drive devices programmatically via
-  `AgentDevice.open(...)`.
+- a **Dart library** (`package:agent_device`) you can import into any Dart / Flutter project to drive devices programmatically via `AgentDevice.open(...)`.
 
-## Quick start
-
-```bash
-# 1. Bootstrap the workspace.
-make get
-# Or build a standalone native binary:
-make compile     # → dist/agent-device  (+ dist/ad symlink)
-
-# 2. (iOS only, one-time per target) Build the XCUITest runner. Needs Xcode.
-#    Simulator:
-xcodebuild build-for-testing \
-  -project ios-runner/AgentDeviceRunner/AgentDeviceRunner.xcodeproj \
-  -scheme AgentDeviceRunner \
-  -destination "generic/platform=iOS Simulator" \
-  -derivedDataPath ios-runner/build
-
-#    Physical device (needs a provisioning profile for `dev.roszkowski.agentdevice.runner`):
-xcodebuild build-for-testing \
-  -project ios-runner/AgentDeviceRunner/AgentDeviceRunner.xcodeproj \
-  -scheme AgentDeviceRunner \
-  -destination "generic/platform=iOS" \
-  -derivedDataPath ios-runner/build-device
-
-# 3. Drive a simulator.
-xcrun simctl boot "iPhone 17"
-dart run packages/agent_device/bin/agent_device.dart \
-  devices --platform ios --json
-
-# Optional: shell completions
-eval "$(./dist/agent-device completion bash)"      # bash
-eval "$(./dist/agent-device completion zsh)"       # zsh
-./dist/agent-device completion fish | source       # fish
-```
 
 ### Physical iOS device prerequisites
 
