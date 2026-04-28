@@ -1,5 +1,7 @@
 // Port of agent-device/src/platforms/android/snapshot.ts
 
+import 'package:meta/meta.dart' show visibleForTesting;
+
 import '../../snapshot/snapshot.dart';
 import '../../utils/errors.dart' show AppError, AppErrorCodes;
 import '../../utils/exec.dart';
@@ -147,7 +149,7 @@ _captureAndroidUiHierarchy(
       return await _captureAndroidUiHierarchyOnce(serial, options);
     } catch (e) {
       lastError = e;
-      if (attempt < maxAttempts && _isUiAutomationConflict(e)) {
+      if (attempt < maxAttempts && isUiAutomationConflict(e)) {
         logger.trace(
           '[snapshot] UiAutomation busy, retrying in '
           '${retryDelay.inMilliseconds}ms (attempt $attempt/$maxAttempts)',
@@ -233,6 +235,7 @@ _captureAndroidUiHierarchyOnce(
         ),
       );
     } catch (error) {
+      if (isUiAutomationConflict(error)) rethrow;
       final reason = (error is AppError) ? error.message : error.toString();
       logger.trace('[snapshot] helper failed, falling back to uiautomator: $reason');
       return _captureStockUiHierarchy(serial, fallbackReason: reason);
@@ -279,6 +282,7 @@ _captureAndroidUiHierarchyOnce(
   } catch (error) {
     final reason = (error is AppError) ? error.message : error.toString();
     logger.trace('[snapshot] on-device helper failed: $reason');
+    if (isUiAutomationConflict(error)) rethrow;
   }
 
   logger.trace(
@@ -482,7 +486,8 @@ AppError _uiAutomatorKilledError(String stdout, String stderr) {
 
 /// True when the error looks like a UiAutomation conflict — another process
 /// holds the single connection and our attempt was killed or couldn't parse.
-bool _isUiAutomationConflict(Object error) {
+@visibleForTesting
+bool isUiAutomationConflict(Object error) {
   if (error is! AppError) return false;
   final msg = error.message.toLowerCase();
   final details = error.details;
