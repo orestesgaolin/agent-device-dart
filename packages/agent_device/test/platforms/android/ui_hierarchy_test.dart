@@ -301,5 +301,62 @@ void main() {
         expect(result.nodes[i].index, i);
       }
     });
+
+    test('parseUiHierarchy decodes XML entities in node attributes', () {
+      // Port of the upstream TS test added in d77a9211.
+      // Covers named entities (&amp; &lt; &gt; &quot; &apos;) and
+      // decimal numeric references (&#10; &#9;).
+      const xml =
+          '<hierarchy>'
+          '<node class="android.widget.TextView" '
+          'text="Line 1&#10;Line 2&#9;&amp;&lt;&gt;&quot;&apos;" '
+          'bounds="[0,0][10,10]"/>'
+          '</hierarchy>';
+
+      final result = parseUiHierarchy(
+        xml,
+        800,
+        const SnapshotOptions(raw: true),
+      );
+      expect(result.nodes.length, 1);
+      expect(result.nodes[0].value, 'Line 1\nLine 2\t&<>"\'');
+      expect(result.nodes[0].label, 'Line 1\nLine 2\t&<>"\'');
+    });
+
+    test('parseUiHierarchy decodes hex numeric XML entities', () {
+      const xml =
+          '<hierarchy>'
+          '<node class="android.widget.TextView" '
+          'text="&#x41;&#x42;&#x43;" '
+          'bounds="[0,0][10,10]"/>'
+          '</hierarchy>';
+
+      final result = parseUiHierarchy(
+        xml,
+        800,
+        const SnapshotOptions(raw: true),
+      );
+      expect(result.nodes.length, 1);
+      expect(result.nodes[0].value, 'ABC');
+    });
+
+    test('parseUiHierarchy passes through malformed entities verbatim', () {
+      const xml =
+          '<hierarchy>'
+          '<node class="android.widget.TextView" '
+          'text="&unknown;&notclosed" '
+          'bounds="[0,0][10,10]"/>'
+          '</hierarchy>';
+
+      final result = parseUiHierarchy(
+        xml,
+        800,
+        const SnapshotOptions(raw: true),
+      );
+      expect(result.nodes.length, 1);
+      // &unknown; has no mapping — passed through as-is; &notclosed has no
+      // closing semicolon — passed through from the & onward.
+      expect(result.nodes[0].value, '&unknown;&notclosed');
+    });
   });
 }

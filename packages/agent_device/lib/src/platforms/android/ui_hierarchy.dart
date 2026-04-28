@@ -465,8 +465,9 @@ AndroidSnapshotAnalysis _analyzeAndroidTree(AndroidUiHierarchy root) {
 
 /// Extract attributes from an XML opening tag using regex.
 ///
-/// Handles quoted attribute values and whitespace. Returns a map
-/// of attribute names to values.
+/// Handles quoted attribute values, whitespace, and XML entity decoding
+/// (`&amp;`, `&lt;`, `&gt;`, `&quot;`, `&apos;`, numeric `&#N;`/`&#xN;`).
+/// Returns a map of attribute names to decoded values.
 Map<String, String> _parseXmlNodeAttributes(String node) {
   final attrs = <String, String>{};
   final start = node.indexOf(' ');
@@ -495,9 +496,83 @@ Map<String, String> _parseXmlNodeAttributes(String node) {
     final match = attrRegex.matchAsPrefix(node, cursor);
     if (match == null) break;
 
-    attrs[match.group(1)!] = match.group(3)!;
+    attrs[match.group(1)!] = _decodeXmlAttributeValue(match.group(3)!);
     cursor = match.end;
   }
 
   return attrs;
+}
+
+/// Decode XML character references and named entities in an attribute value.
+///
+/// Port of `decodeXmlAttributeValue` from `ui-hierarchy.ts`. Handles the
+/// five predefined XML entities (`&amp;` `&lt;` `&gt;` `&quot;` `&apos;`)
+/// and decimal / hex numeric references (`&#10;` `&#x0A;`). Any unrecognised
+/// or malformed entity is passed through verbatim.
+String _decodeXmlAttributeValue(String value) {
+  final ampIdx = value.indexOf('&');
+  if (ampIdx < 0) return value; // fast path: no entities
+
+  final buf = StringBuffer();
+  var cursor = 0;
+  while (cursor < value.length) {
+    final entityStart = value.indexOf('&', cursor);
+    if (entityStart < 0) {
+      buf.write(value.substring(cursor));
+      break;
+    }
+    buf.write(value.substring(cursor, entityStart));
+    final entityEnd = value.indexOf(';', entityStart + 1);
+    if (entityEnd < 0) {
+      buf.write(value.substring(entityStart));
+      break;
+    }
+    final raw = value.substring(entityStart + 1, entityEnd);
+    final decoded = _decodeXmlEntity(raw);
+    if (decoded != null) {
+      buf.write(decoded);
+    } else {
+      buf.write(value.substring(entityStart, entityEnd + 1));
+    }
+    cursor = entityEnd + 1;
+  }
+  return buf.toString();
+}
+
+String? _decodeXmlEntity(String entity) {
+  switch (entity) {
+    case 'amp':
+      return '&';
+    case 'lt':
+      return '<';
+    case 'gt':
+      return '>';
+    case 'quot':
+      return '"';
+    case 'apos':
+      return "'";
+    default:
+      return _decodeNumericXmlEntity(entity);
+  }
+}
+
+String? _decodeNumericXmlEntity(String entity) {
+  if (!entity.startsWith('#')) return null;
+  final int radix;
+  final String digits;
+  if (entity.length > 2 && entity[1].toLowerCase() == 'x') {
+    radix = 16;
+    digits = entity.substring(2);
+  } else {
+    radix = 10;
+    digits = entity.substring(1);
+  }
+  if (digits.isEmpty) return null;
+  final codePoint = int.tryParse(digits, radix: radix);
+  if (codePoint == null) return null;
+  try {
+    return String.fromCharCode(codePoint);
+  } catch (_) {
+    return null;
+  }
 }
