@@ -64,28 +64,64 @@ class ClickCommand extends AgentDeviceCommand {
   }
 }
 
-/// `find` — search the current snapshot for nodes whose visible text
-/// contains a substring.
+/// `find` — search the current snapshot for nodes matching a query.
+///
+/// Supports three input forms (tried in priority order):
+///
+/// 1. **Selector DSL** — `find 'text="Yes, Tap to select"'`, `find visible`,
+///    `find 'role=button selected'`. All positionals are parsed as a selector
+///    expression and matched exactly.
+/// 2. **Locator token** — `find text 'Yes'`, `find label 'Submit'`,
+///    `find role button`. The first word specifies the field; the rest is
+///    a case-insensitive substring query.
+/// 3. **Plain substring** — `find 'Yes'`. Case-insensitive substring search
+///    across label, value, and identifier.
 class FindCommand extends AgentDeviceCommand {
   @override
   String get name => 'find';
 
   @override
   String get description =>
-      'Find snapshot nodes whose label/value/identifier contains the given text.';
+      'Find snapshot nodes by selector DSL, locator+query, or plain substring.';
+
+  static const _locatorTokens = {'text', 'label', 'value', 'role', 'id'};
 
   @override
   Future<int> run() async {
     if (positionals.isEmpty) {
-      throw AppError(AppErrorCodes.invalidArgs, 'find requires <text>.');
+      throw AppError(AppErrorCodes.invalidArgs, 'find requires <query>.');
     }
-    final text = positionals.join(' ');
+
+    // --- Determine query mode ---
+    String displayQuery;
+    String locator = 'any';
+    SelectorChain? selectorChain;
+
+    // 1. Selector DSL: try to consume all positionals as a selector expression.
+    final selectorSplit = splitSelectorFromArgs(positionals);
+    if (selectorSplit != null && selectorSplit.rest.isEmpty) {
+      selectorChain = parseSelectorChain(selectorSplit.selectorExpression);
+      displayQuery = selectorSplit.selectorExpression;
+    } else if (positionals.length >= 2 &&
+        _locatorTokens.contains(positionals[0].toLowerCase())) {
+      // 2. Locator token: first word names the field, rest is the query.
+      locator = positionals[0].toLowerCase();
+      displayQuery = positionals.sublist(1).join(' ');
+    } else {
+      // 3. Plain substring across all text fields.
+      displayQuery = positionals.join(' ');
+    }
+
     final device = await openAgentDevice();
-    final hits = await device.find(text);
+    final hits = await device.find(
+      displayQuery,
+      locator: locator,
+      selectorChain: selectorChain,
+    );
     emitResult(
       hits,
       humanFormat: (_) {
-        if (hits.isEmpty) return '(no matches for "$text")';
+        if (hits.isEmpty) return '(no matches for "$displayQuery")';
         final buf = StringBuffer();
         for (final h in hits) {
           final ref = h['ref'];

@@ -636,30 +636,62 @@ class AgentDevice {
   // Query: find / get / is / wait
   // =========================================================================
 
-  /// Search the current snapshot for nodes whose visible text contains
-  /// [text] (case-insensitive). Returns a list of `{ref, label, rect}`
-  /// maps so the caller can inspect or feed the refs back into [tapTarget]
-  /// etc. Takes a fresh snapshot unless one is supplied.
+  /// Search the current snapshot for nodes matching [text].
+  ///
+  /// Three modes are supported, tried in this order:
+  ///
+  /// * **Selector DSL** ([selectorChain] is provided): exact match via
+  ///   [matchesSelector]. E.g. `text="Yes, Tap to select"` or `visible`.
+  /// * **Locator** ([locator] ≠ `'any'`): case-insensitive substring match
+  ///   restricted to the named field (`text`/`label`/`value`/`id`/`role`).
+  /// * **Any** (default): case-insensitive substring match across `label`,
+  ///   `value`, and `identifier`.
+  ///
+  /// Returns a list of `{ref, label, value, identifier, type, rect}` maps.
+  /// Takes a fresh snapshot unless [snapshotOverride] is supplied.
   Future<List<Map<String, Object?>>> find(
     String text, {
+    String locator = 'any',
+    SelectorChain? selectorChain,
     BackendSnapshotResult? snapshotOverride,
   }) async {
-    if (text.trim().isEmpty) {
+    if (selectorChain == null && text.trim().isEmpty) {
       throw AppError(
         AppErrorCodes.invalidArgs,
         'find: query must be non-empty.',
       );
     }
     final snap = snapshotOverride ?? await snapshot();
-    final needle = text.toLowerCase();
     final nodes = _nodesOf(snap);
     final hits = <Map<String, Object?>>[];
+    final platform = backend.platform.name;
+
     for (final n in nodes) {
-      final haystacks = <String?>[n.label, n.value, n.identifier];
-      final hit = haystacks
-          .whereType<String>()
-          .map((s) => s.toLowerCase())
-          .any((s) => s.contains(needle));
+      final bool hit;
+      if (selectorChain != null) {
+        hit = selectorChain.selectors.any(
+          (sel) => matchesSelector(n, sel, platform),
+        );
+      } else {
+        final needle = _normalizeFindText(text);
+        final List<String?> haystacks;
+        switch (locator) {
+          case 'label':
+            haystacks = [n.label];
+          case 'value':
+            haystacks = [n.value];
+          case 'id':
+            haystacks = [n.identifier];
+          case 'role':
+            haystacks = [_normalizeFindRole(n.type)];
+          default:
+            haystacks = [n.label, n.value, n.identifier];
+        }
+        hit = haystacks
+            .whereType<String>()
+            .map(_normalizeFindText)
+            .any((s) => s.contains(needle));
+      }
       if (!hit) continue;
       hits.add(<String, Object?>{
         'ref': n.ref,
@@ -677,6 +709,16 @@ class AgentDevice {
       });
     }
     return hits;
+  }
+
+  static String _normalizeFindText(String s) =>
+      s.trim().toLowerCase().replaceAll(RegExp(r'\s+'), ' ');
+
+  static String _normalizeFindRole(String? type) {
+    if (type == null || type.isEmpty) return '';
+    final lower = type.toLowerCase();
+    final lastDot = lower.lastIndexOf('.');
+    return lastDot >= 0 ? lower.substring(lastDot + 1) : lower;
   }
 
   /// Read a named attribute off the node addressed by [target]. [attr] is
