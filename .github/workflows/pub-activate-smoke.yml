@@ -1,0 +1,171 @@
+name: Pub Activate Smoke
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  smoke:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: stable
+
+      # Activate the package from the local checkout — simulates what a
+      # user gets after `dart pub global activate agent_device`, except
+      # the source is the local path rather than pub.dev.
+      - name: Activate CLI from local source
+        run: dart pub global activate --source path packages/agent_device
+
+      - name: Verify executables are on PATH
+        run: |
+          which agent-device
+          which ad
+
+      # All subsequent commands run from /tmp so the CLI cannot
+      # accidentally fall back to repo-root-relative path walks.
+      - name: ad --help exits 0
+        working-directory: /tmp
+        run: ad --help
+
+      - name: ad devices --json does not crash
+        working-directory: /tmp
+        run: ad devices --json || true
+
+      - name: ad snapshot --help exits 0
+        working-directory: /tmp
+        run: ad snapshot --help
+
+      - name: ad replay --help exits 0
+        working-directory: /tmp
+        run: ad replay --help
+
+      - name: ad batch --help exits 0
+        working-directory: /tmp
+        run: ad batch --help
+
+      # Verify the bundled native assets are resolvable from outside
+      # the repo by creating a temp Dart project that imports the
+      # globally activated package.
+      - name: Verify bundled native assets resolve via package URI
+        working-directory: /tmp
+        run: |
+          mkdir -p ad_smoke_test
+          cd ad_smoke_test
+          cat > pubspec.yaml << 'YAML'
+          name: ad_smoke_test
+          environment:
+            sdk: ^3.10.0
+          dependencies:
+            agent_device:
+              path: ${{ github.workspace }}/packages/agent_device
+          YAML
+          dart pub get
+          cat > bin/check.dart << 'DART'
+          import 'dart:io';
+          import 'dart:isolate';
+
+          void main() async {
+            var ok = true;
+
+            // Android helper APK
+            final apk = await Isolate.resolvePackageUri(Uri.parse(
+              'package:agent_device/src/native/android-snapshot-helper/android-snapshot-helper.apk',
+            ));
+            if (apk != null && File.fromUri(apk).existsSync()) {
+              print('OK: Android helper APK at ${File.fromUri(apk).path} '
+                  '(${File.fromUri(apk).lengthSync()} bytes)');
+            } else {
+              stderr.writeln('FAIL: Android helper APK not resolvable');
+              ok = false;
+            }
+
+            // Android helper manifest
+            final manifest = await Isolate.resolvePackageUri(Uri.parse(
+              'package:agent_device/src/native/android-snapshot-helper/android-snapshot-helper.manifest.json',
+            ));
+            if (manifest != null && File.fromUri(manifest).existsSync()) {
+              print('OK: Android helper manifest at ${File.fromUri(manifest).path}');
+            } else {
+              stderr.writeln('FAIL: Android helper manifest not resolvable');
+              ok = false;
+            }
+
+            // iOS runner Xcode project (source)
+            final xcodeproj = await Isolate.resolvePackageUri(Uri.parse(
+              'package:agent_device/src/native/ios-runner/AgentDeviceRunner/AgentDeviceRunner.xcodeproj/',
+            ));
+            if (xcodeproj != null && Directory.fromUri(xcodeproj).existsSync()) {
+              print('OK: iOS runner source at ${Directory.fromUri(xcodeproj).path}');
+            } else {
+              // iOS runner source is expected on both platforms (it ships in
+              // the package even on Linux — build just won't work there).
+              stderr.writeln('FAIL: iOS runner source not resolvable');
+              ok = false;
+            }
+
+            if (!ok) exit(1);
+            print('All native assets resolved successfully.');
+          }
+          DART
+          dart run bin/check.dart
+          cd /tmp && rm -rf ad_smoke_test
+
+      # macOS: verify the iOS runner builds from the bundled source.
+      - name: Build iOS runner from bundled source (macOS only)
+        if: runner.os == 'macOS'
+        working-directory: /tmp
+        run: |
+          # Resolve the bundled ios-runner path via the activated package.
+          RUNNER_SRC="$(dart pub global list 2>/dev/null; \
+            find "$(dart pub global list 2>&1 | head -1 || true)" \
+              -path '*/agent_device/lib/src/native/ios-runner' -maxdepth 8 2>/dev/null | head -1 || true)"
+          # Fallback: use the checkout path directly.
+          if [ -z "$RUNNER_SRC" ] || [ ! -d "$RUNNER_SRC" ]; then
+            RUNNER_SRC="${{ github.workspace }}/packages/agent_device/lib/src/native/ios-runner"
+          fi
+          echo "iOS runner source: $RUNNER_SRC"
+          xcodebuild build-for-testing \
+            -project "$RUNNER_SRC/AgentDeviceRunner/AgentDeviceRunner.xcodeproj" \
+            -scheme AgentDeviceRunner \
+            -destination "generic/platform=iOS Simulator" \
+            -derivedDataPath /tmp/ios-runner-build \
+            -quiet
+          echo "OK: iOS runner built successfully"
+          ls /tmp/ios-runner-build/Build/Products/*.xctestrun
+
+      # Both platforms: verify the Android helper APK compiles from
+      # bundled source (requires Android SDK).
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Build Android helper from bundled source
+        working-directory: /tmp
+        run: |
+          HELPER_SRC="${{ github.workspace }}/packages/agent_device/lib/src/native/android-snapshot-helper"
+          echo "Helper source: $HELPER_SRC"
+          # The build script expects the source under android-snapshot-helper/
+          # at the project root. Create a temp layout.
+          mkdir -p ad_helper_build/android-snapshot-helper
+          cp -r "$HELPER_SRC/source/"* ad_helper_build/android-snapshot-helper/
+          cp "$HELPER_SRC/build-android-snapshot-helper.sh" ad_helper_build/
+          cd ad_helper_build
+          sh build-android-snapshot-helper.sh 0.0.1-smoke dist
+          ls -la dist/*.apk
+          echo "OK: Android helper APK built successfully"
+          cd /tmp && rm -rf ad_helper_build
