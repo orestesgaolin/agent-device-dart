@@ -136,6 +136,36 @@ _captureAndroidUiHierarchy(
   String serial,
   AndroidSnapshotOptions options,
 ) async {
+  // Android allows only one UiAutomation connection at a time. If another
+  // process (e.g. a parallel test runner) holds the connection, both the
+  // helper and uiautomator dump fail immediately. Retry with backoff.
+  const maxAttempts = 3;
+  const retryDelay = Duration(milliseconds: 1500);
+  Object? lastError;
+  for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await _captureAndroidUiHierarchyOnce(serial, options);
+    } catch (e) {
+      lastError = e;
+      if (attempt < maxAttempts && _isUiAutomationConflict(e)) {
+        logger.trace(
+          '[snapshot] UiAutomation busy, retrying in '
+          '${retryDelay.inMilliseconds}ms (attempt $attempt/$maxAttempts)',
+        );
+        await Future<void>.delayed(retryDelay);
+        continue;
+      }
+      rethrow;
+    }
+  }
+  throw lastError!;
+}
+
+Future<({String xml, AndroidSnapshotBackendMetadata metadata})>
+_captureAndroidUiHierarchyOnce(
+  String serial,
+  AndroidSnapshotOptions options,
+) async {
   final helper = await _resolveAndroidSnapshotHelperArtifact(
     options.helperArtifact,
   );
@@ -448,6 +478,21 @@ AppError _uiAutomatorKilledError(String stdout, String stderr) {
       'reason': 'uiautomator_killed',
     },
   );
+}
+
+/// True when the error looks like a UiAutomation conflict — another process
+/// holds the single connection and our attempt was killed or couldn't parse.
+bool _isUiAutomationConflict(Object error) {
+  if (error is! AppError) return false;
+  final msg = error.message.toLowerCase();
+  final details = error.details;
+  final reason = details?['reason'];
+  if (reason == 'uiautomator_killed') return true;
+  if (msg.contains('killed') && msg.contains('uiautomator')) return true;
+  if (msg.contains('already registered')) return true;
+  if (msg.contains('could not be parsed') &&
+      msg.contains('snapshot helper')) return true;
+  return false;
 }
 
 /// Resolve the actual dump path from uiautomator output.
