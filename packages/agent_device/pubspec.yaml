@@ -1,13 +1,12 @@
 name: agent_device
 description: >-
-  Agent-driven CLI and library for mobile UI automation, network inspection,
-  and performance diagnostics across iOS, Android, tvOS, macOS, and Linux.
+  Agent-enabled CLI and library for mobile UI automation, network inspection,
+  and performance diagnostics across iOS and Android.
   Dart port of the TypeScript agent-device project.
 version: 0.0.1
-publish_to: none
-homepage: https://github.com/roszkowski/agent-device-dart
-repository: https://github.com/roszkowski/agent-device-dart
-issue_tracker: https://github.com/roszkowski/agent-device-dart/issues
+homepage: https://github.com/orestesgaolin/agent-device-dart/
+repository: https://github.com/orestesgaolin/agent-device-dart
+issue_tracker: https://github.com/orestesgaolin/agent-device-dart/issues
 
 resolution: workspace
 
