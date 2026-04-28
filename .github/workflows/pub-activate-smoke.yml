@@ -158,15 +158,16 @@ jobs:
       - name: Build Android helper from bundled source
         working-directory: /tmp
         run: |
-          HELPER_SRC="${{ github.workspace }}/packages/agent_device/lib/src/native/android-snapshot-helper"
-          echo "Helper source: $HELPER_SRC"
-          # The build script expects the source under android-snapshot-helper/
-          # at the project root. Create a temp layout.
-          mkdir -p ad_helper_build/android-snapshot-helper
-          cp -r "$HELPER_SRC/source/"* ad_helper_build/android-snapshot-helper/
-          cp "$HELPER_SRC/build-android-snapshot-helper.sh" ad_helper_build/
+          set -euo pipefail
+          NATIVE="${{ github.workspace }}/packages/agent_device/lib/src/native/android-snapshot-helper"
+          # The build script resolves paths relative to its own parent:
+          #   <root>/scripts/build-android-snapshot-helper.sh
+          #   <root>/android-snapshot-helper/{src,AndroidManifest.xml,debug.keystore}
+          mkdir -p ad_helper_build/scripts ad_helper_build/android-snapshot-helper
+          cp "$NATIVE/build-android-snapshot-helper.sh" ad_helper_build/scripts/
+          cp -r "$NATIVE/source/"* ad_helper_build/android-snapshot-helper/
           cd ad_helper_build
-          sh build-android-snapshot-helper.sh 0.0.1-smoke dist
+          sh scripts/build-android-snapshot-helper.sh 0.0.1-smoke dist
           ls -la dist/*.apk
           echo "OK: Android helper APK built successfully"
           cd /tmp && rm -rf ad_helper_build

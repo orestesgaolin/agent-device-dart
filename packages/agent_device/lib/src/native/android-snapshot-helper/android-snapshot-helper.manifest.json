@@ -4,7 +4,7 @@
   "releaseTag": "local",
   "assetName": "agent-device-android-snapshot-helper-0.0.1.apk",
   "apkUrl": null,
-  "sha256": "ecb74d063cec88e95bb8aea563677eb3be5498933c4288d5d2329c2566e46029",
+  "sha256": "f830327a496913d2674254c9b32d950e22d29ba5b5a4e37dd9ce1056f2b6ced9",
   "checksumName": "agent-device-android-snapshot-helper-0.0.1.apk.sha256",
   "packageName": "com.callstack.agentdevice.snapshothelper",
   "versionCode": 1,
