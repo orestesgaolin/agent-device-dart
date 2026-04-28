@@ -1,11 +1,9 @@
 // Port of agent-device/src/platforms/android/snapshot.ts
 
-import 'dart:io' show stderr, Platform;
-
 import '../../snapshot/snapshot.dart';
-import '../../utils/errors.dart'
-    show AppError, AppErrorCodes, agentDeviceVerbose;
+import '../../utils/errors.dart' show AppError, AppErrorCodes;
 import '../../utils/exec.dart';
+import '../../utils/logger.dart';
 import '../../utils/mobile_snapshot_semantics.dart';
 import '../../utils/retry.dart';
 import '../../utils/scrollable.dart';
@@ -145,7 +143,7 @@ _captureAndroidUiHierarchy(
 
   if (artifact != null) {
     try {
-      _log(
+      logger.trace(
         '[snapshot] using helper v${artifact.manifest.version} '
         '(${artifact.apkPath})',
       );
@@ -157,13 +155,13 @@ _captureAndroidUiHierarchy(
         timeoutMs: _helperInstallTimeoutMs,
       );
       if (install.installed) {
-        _info(
+        logger.stdout(
           '[snapshot] installed Android snapshot helper APK '
           '(${artifact.manifest.packageName} v${artifact.manifest.versionCode}, '
           'reason: ${install.reason})',
         );
       } else {
-        _log(
+        logger.trace(
           '[snapshot] helper already on device '
           '(v${install.installedVersionCode ?? "?"})',
         );
@@ -178,7 +176,7 @@ _captureAndroidUiHierarchy(
           commandTimeoutMs: _helperCommandTimeoutMs,
         ),
       );
-      _log(
+      logger.trace(
         '[snapshot] helper capture: '
         'mode=${capture.metadata.captureMode} '
         'windows=${capture.metadata.windowCount} '
@@ -206,7 +204,7 @@ _captureAndroidUiHierarchy(
       );
     } catch (error) {
       final reason = (error is AppError) ? error.message : error.toString();
-      _log('[snapshot] helper failed, falling back to uiautomator: $reason');
+      logger.trace('[snapshot] helper failed, falling back to uiautomator: $reason');
       return _captureStockUiHierarchy(serial, fallbackReason: reason);
     }
   }
@@ -218,7 +216,7 @@ _captureAndroidUiHierarchy(
   try {
     final installed = await _isHelperInstalledOnDevice(adb);
     if (installed) {
-      _log('[snapshot] no local artifact, but helper is on device — using it');
+      logger.trace('[snapshot] no local artifact, but helper is on device — using it');
       final capture = await captureAndroidSnapshotWithHelper(
         AndroidSnapshotHelperCaptureOptions(
           adb: adb,
@@ -229,7 +227,7 @@ _captureAndroidUiHierarchy(
           commandTimeoutMs: _helperCommandTimeoutMs,
         ),
       );
-      _log(
+      logger.trace(
         '[snapshot] helper capture: '
         'mode=${capture.metadata.captureMode} '
         'windows=${capture.metadata.windowCount} '
@@ -250,10 +248,10 @@ _captureAndroidUiHierarchy(
     }
   } catch (error) {
     final reason = (error is AppError) ? error.message : error.toString();
-    _log('[snapshot] on-device helper failed: $reason');
+    logger.trace('[snapshot] on-device helper failed: $reason');
   }
 
-  _log(
+  logger.trace(
     '[snapshot] no helper available'
     '${helper.$2 != null ? ' (${helper.$2})' : ''}, using uiautomator',
   );
@@ -600,18 +598,6 @@ void _applyHiddenContentHintsToInteractiveNodes(
     if (hint.hiddenContentAbove) interactiveNode.hiddenContentAbove = true;
     if (hint.hiddenContentBelow) interactiveNode.hiddenContentBelow = true;
   }
-}
-
-bool get _verbose =>
-    agentDeviceVerbose ||
-    Platform.environment['AGENT_DEVICE_ANDROID_SNAPSHOT_DEBUG'] == '1';
-
-void _log(String message) {
-  if (_verbose) stderr.writeln(message);
-}
-
-void _info(String message) {
-  stderr.writeln(message);
 }
 
 Future<bool> _isHelperInstalledOnDevice(AndroidAdbExecutor adb) async {

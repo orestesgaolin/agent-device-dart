@@ -3,6 +3,7 @@ library;
 
 import 'dart:io';
 
+import 'package:agent_device/src/utils/logger.dart';
 import 'package:args/command_runner.dart';
 
 import 'commands/batch_cmd.dart';
@@ -128,6 +129,8 @@ Future<int> runCli(List<String> argv, {String? executableName}) async {
       argv.contains('--verbose') ||
       argv.contains('-v') ||
       argv.contains('--debug');
+
+  initLogger(verbose: verbose);
 
   try {
     final result = await runner.run(argv);

@@ -5,10 +5,11 @@ library;
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io' show Platform, stderr;
+import 'dart:io' show Platform;
 import 'dart:math' show Random, max, min;
 import 'diagnostics.dart';
 import 'errors.dart';
+import 'logger.dart';
 
 /// Context information about a retry attempt.
 class RetryAttemptContext {
@@ -349,7 +350,7 @@ void _publishRetryEvent(RetryTelemetryEvent event) {
     EmitDiagnosticOptions(level: level, phase: 'retry', data: event.toJson()),
   );
   if (!_retryLogsEnabled) return;
-  stderr.writeln('[agent-device][retry] ${jsonEncode(event.toJson())}');
+  logger.trace('[agent-device][retry] ${jsonEncode(event.toJson())}');
 }
 
 /// Token for canceling operations.

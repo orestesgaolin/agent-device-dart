@@ -12,6 +12,7 @@ import 'dart:io';
 
 import 'package:agent_device/src/native/resolve.dart';
 import 'package:agent_device/src/utils/exec.dart';
+import 'package:agent_device/src/utils/logger.dart';
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 
@@ -159,17 +160,18 @@ Future<AndroidSnapshotHelperArtifact?> _autoBuildHelperIfPossible() async {
 
   final distDir = p.join(helperDir, 'dist');
   try {
-    stderr.writeln('[snapshot] auto-building Android snapshot helper APK…');
+    final progress = logger.progress('[snapshot] auto-building Android snapshot helper APK');
     final script = packageScript.existsSync() ? packageScript : buildScript;
     final args = packageScript.existsSync()
         ? [script.path, '0.0.1', 'local', distDir]
         : [script.path, '0.0.1', distDir];
     final r = await runCmd('sh', args, const ExecOptions(allowFailure: true));
     if (r.exitCode != 0) {
-      stderr.writeln('[snapshot] helper build failed (exit ${r.exitCode})');
+      progress.finish(showTiming: true);
+      logger.stderr('[snapshot] helper build failed (exit ${r.exitCode})');
       return null;
     }
-    stderr.writeln('[snapshot] helper build complete');
+    progress.finish(showTiming: true);
   } catch (_) {
     return null;
   }

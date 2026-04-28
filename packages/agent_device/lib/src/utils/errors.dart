@@ -5,13 +5,7 @@
 /// which attach hints, diagnostic ids, and redacted detail payloads.
 library;
 
-import 'dart:io' show Platform;
-
 import 'redaction.dart';
-
-/// Global verbose flag. Set by the CLI when `--verbose` / `--debug` is passed.
-/// Platform modules check this to emit diagnostic logs.
-bool agentDeviceVerbose = Platform.environment['AGENT_DEVICE_VERBOSE'] == '1';
 
 /// Known error codes. Additional strings flow through verbatim so that
 /// daemon-originated codes round-trip without a union update. Consumers

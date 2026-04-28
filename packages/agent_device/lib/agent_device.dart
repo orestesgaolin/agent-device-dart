@@ -192,6 +192,7 @@ export 'src/utils/exec.dart'
         runCmdStreaming,
         runCmdSync,
         whichCmd;
+export 'src/utils/logger.dart' show initLogger, logger;
 export 'src/utils/path_resolution.dart'
     show
         EnvMap,

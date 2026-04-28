@@ -33,6 +33,7 @@ import 'dart:io';
 import 'package:agent_device/src/native/resolve.dart';
 import 'package:agent_device/src/utils/errors.dart';
 import 'package:agent_device/src/utils/exec.dart';
+import 'package:agent_device/src/utils/logger.dart';
 import 'package:path/path.dart' as p;
 
 /// JSON envelope returned by the runner: `{ok: bool, data|error: ...}`.
@@ -243,7 +244,7 @@ class IosRunnerClient {
       return findXctestrun(productsDir, kind: kind);
     }
     final derivedDataPath = p.join(projectRoot, 'build');
-    _debugLog('[runner] auto-building iOS runner…');
+    final progress = logger.progress('[runner] auto-building iOS runner');
     final result = await runCmd('xcodebuild', [
       'build-for-testing',
       '-project',
@@ -257,6 +258,7 @@ class IosRunnerClient {
       '-quiet',
     ], const ExecOptions(allowFailure: true));
     if (result.exitCode != 0) {
+      progress.finish(showTiming: true);
       throw AppError(
         AppErrorCodes.commandFailed,
         'Auto-build of iOS runner failed (exit ${result.exitCode}).',
@@ -266,7 +268,7 @@ class IosRunnerClient {
         },
       );
     }
-    _debugLog('[runner] auto-build complete');
+    progress.finish(showTiming: true);
     return findXctestrun(productsDir, kind: kind);
   }
 
@@ -371,7 +373,7 @@ class IosRunnerClient {
         : 'platform=iOS Simulator,id=$udid';
     // xcodebuild writes to stdout; redirect via `sh -c '… > log 2>&1'`
     // so the detached subprocess has nowhere for the parent to drain.
-    _debugLog(
+    logger.trace(
       '[runner] launching xcodebuild  kind=${kind.wire}  udid=$udid  '
       'port=$port  xctestrun=$xctestrunPath',
     );
@@ -394,7 +396,7 @@ class IosRunnerClient {
           '$coverageFlag'
           '> ${_shq(logPath)} 2>&1',
     ], const ExecDetachedOptions());
-    _debugLog('[runner] xcodebuild pid=${proc.pid}  log=$logPath');
+    logger.trace('[runner] xcodebuild pid=${proc.pid}  log=$logPath');
 
     // On device, resolve the CoreDevice IPv6 tunnel address. We retry
     // a few times because `devicectl device info details` can race the
@@ -417,7 +419,7 @@ class IosRunnerClient {
           'then retry.',
         );
       }
-      _debugLog('[runner] resolved CoreDevice tunnel IP=$tunnelIp');
+      logger.trace('[runner] resolved CoreDevice tunnel IP=$tunnelIp');
     }
 
     // Poll until the runner's HTTP listener accepts a request. For
@@ -430,7 +432,7 @@ class IosRunnerClient {
       probeCount += 1;
       if (kind == IosRunnerKind.simulator) {
         if (await _probePort(port)) {
-          _debugLog('[runner] ✓ simulator listener up on :$port');
+          logger.trace('[runner] ✓ simulator listener up on :$port');
           return IosRunnerSession(
             udid: udid,
             port: port,
@@ -442,13 +444,13 @@ class IosRunnerClient {
         }
       } else {
         if (probeCount == 1 || probeCount % 10 == 0) {
-          _debugLog('[runner] probe #$probeCount  endpoint=$deviceUrl');
+          logger.trace('[runner] probe #$probeCount  endpoint=$deviceUrl');
         }
         if (await _probeRunnerEndpoint(
           deviceUrl!,
           timeout: const Duration(seconds: 2),
         )) {
-          _debugLog(
+          logger.trace(
             '[runner] ✓ device listener up at $deviceUrl  '
             '(probe #$probeCount)',
           );
@@ -681,7 +683,7 @@ class IosRunnerClient {
         if (!_isTransientBridgeError(e)) rethrow;
         lastError = e;
         if (attempt == delays.length) break;
-        _debugLog(
+        logger.trace(
           '[runner] attempt ${attempt + 1} failed (${e.message}); '
           'retrying in ${delays[attempt].inMilliseconds}ms',
         );
@@ -689,7 +691,7 @@ class IosRunnerClient {
       } on HttpException catch (e) {
         lastError = e;
         if (attempt == delays.length) break;
-        _debugLog(
+        logger.trace(
           '[runner] attempt ${attempt + 1} failed HTTP framing (${e.message}); '
           'retrying in ${delays[attempt].inMilliseconds}ms',
         );
@@ -716,18 +718,6 @@ class IosRunnerClient {
     return _commandUrl('127.0.0.1', s.port);
   }
 
-  /// Set `AGENT_DEVICE_IOS_RUNNER_DEBUG=1` to log every runner HTTP
-  /// request/response and every launch-phase probe to stderr. Handy
-  /// when chasing device-side connectivity issues over the CoreDevice
-  /// tunnel.
-  static bool get _debug =>
-      Platform.environment['AGENT_DEVICE_IOS_RUNNER_DEBUG'] == '1';
-
-  static void _debugLog(String line) {
-    if (!_debug) return;
-    stderr.writeln(line);
-  }
-
   static Future<RunnerResponse> _postCommand(
     String url,
     Map<String, Object?> body, {
@@ -743,7 +733,7 @@ class IosRunnerClient {
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
     final cmdLabel = body['command'] ?? '<no command>';
     final startedAt = DateTime.now();
-    _debugLog(
+    logger.trace(
       '[runner] POST $url  command=$cmdLabel  timeout=${timeout.inSeconds}s',
     );
     try {
@@ -763,7 +753,7 @@ class IosRunnerClient {
           .timeout(timeout);
       final text = utf8.decode(bytes);
       final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
-      _debugLog(
+      logger.trace(
         '[runner] ← ${res.statusCode}  ${bytes.length} bytes  ${elapsed}ms',
       );
       final decoded = jsonDecode(text);
@@ -784,7 +774,7 @@ class IosRunnerClient {
       return RunnerResponse(ok: true, data: decoded['data']);
     } catch (e) {
       final elapsed = DateTime.now().difference(startedAt).inMilliseconds;
-      _debugLog('[runner] ✗ ${elapsed}ms  $e');
+      logger.trace('[runner] ✗ ${elapsed}ms  $e');
       rethrow;
     } finally {
       client.close(force: true);

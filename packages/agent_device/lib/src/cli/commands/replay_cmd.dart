@@ -10,6 +10,7 @@ import 'dart:io';
 import 'package:agent_device/src/replay/replay_runtime.dart';
 import 'package:agent_device/src/replay/script.dart' as script;
 import 'package:agent_device/src/utils/errors.dart';
+import 'package:agent_device/src/utils/logger.dart';
 import 'package:agent_device/src/utils/video_chapters.dart';
 import 'package:path/path.dart' as p;
 
@@ -125,7 +126,7 @@ class ReplayCommand extends AgentDeviceCommand {
         }
       } catch (e) {
         if (!asJson) {
-          stderr.writeln('warning: recording finalization failed: $e');
+          logger.stderr('warning: recording finalization failed: $e');
         }
       }
     }
@@ -356,7 +357,7 @@ class TestCommand extends AgentDeviceCommand {
         await file.parent.create(recursive: true);
         await file.writeAsString(buildJUnitReport(results));
       } on Object catch (e) {
-        stderr.writeln(
+        logger.stderr(
           'warning: failed to write JUnit report to $junitPath: $e',
         );
       }
