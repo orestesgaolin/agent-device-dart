@@ -43,6 +43,9 @@ class RecordStartCommand extends AgentDeviceCommand {
   String get name => 'start';
 
   @override
+  String get invocation => '${runner!.executableName} record start <outPath> [options]';
+
+  @override
   String get description =>
       'Start recording the current app. The file lands at <outPath> on stop. '
       'iOS requires an open app (set via `agent-device open <bundleId>`).';
@@ -77,6 +80,9 @@ class RecordStartCommand extends AgentDeviceCommand {
 class RecordStopCommand extends AgentDeviceCommand {
   @override
   String get name => 'stop';
+
+  @override
+  String get invocation => '${runner!.executableName} record stop <outPath> [options]';
 
   @override
   String get description =>
