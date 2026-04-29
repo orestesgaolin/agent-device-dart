@@ -52,7 +52,13 @@ class DevicesCommand extends AgentDeviceCommand {
       _tryListDevices(const AndroidBackend()),
       _tryListDevices(const IosBackend()),
     ]);
-    return [...results[0], ...results[1]];
+    final all = [...results[0], ...results[1]];
+    all.sort((a, b) {
+      final aBooted = a.booted == true ? 0 : 1;
+      final bBooted = b.booted == true ? 0 : 1;
+      return aBooted.compareTo(bBooted);
+    });
+    return all;
   }
 
   static Future<List<BackendDeviceInfo>> _tryListDevices(
