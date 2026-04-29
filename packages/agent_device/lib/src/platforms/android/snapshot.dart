@@ -174,6 +174,7 @@ _captureAndroidUiHierarchyOnce(
   final artifact = helper.$1;
 
   if (artifact != null) {
+    final helperDeviceKey = 'android:$serial';
     try {
       logger.trace(
         '[snapshot] using helper v${artifact.manifest.version} '
@@ -184,6 +185,7 @@ _captureAndroidUiHierarchyOnce(
         adb: adb,
         artifact: artifact,
         installPolicy: options.helperInstallPolicy,
+        deviceKey: helperDeviceKey,
         timeoutMs: _helperInstallTimeoutMs,
       );
       if (install.installed) {
@@ -235,6 +237,11 @@ _captureAndroidUiHierarchyOnce(
         ),
       );
     } catch (error) {
+      forgetAndroidSnapshotHelperInstall(
+        deviceKey: helperDeviceKey,
+        packageName: artifact.manifest.packageName,
+        versionCode: artifact.manifest.versionCode,
+      );
       if (isUiAutomationConflict(error)) rethrow;
       final reason = (error is AppError) ? error.message : error.toString();
       logger.trace('[snapshot] helper failed, falling back to uiautomator: $reason');

@@ -1,8 +1,36 @@
 // Port of agent-device/src/platforms/android/snapshot-helper-install.ts
 
+import 'package:meta/meta.dart' show visibleForTesting;
+
 import '../../utils/errors.dart';
 import 'snapshot_helper_artifact.dart';
 import 'snapshot_helper_types.dart';
+
+// In-memory cache: avoids shelling out to `adb shell pm list packages` on
+// every snapshot when the helper is already known to be installed at the
+// right version. Keyed by `<deviceKey>\0<packageName>\0<versionCode>`.
+final _installedSnapshotHelpers = <String, int>{};
+
+/// Forget a cached install for a specific device + helper version.
+/// Called when helper capture fails so the next attempt re-checks.
+void forgetAndroidSnapshotHelperInstall({
+  required String? deviceKey,
+  required String packageName,
+  required int versionCode,
+}) {
+  final key = _installCacheKey(deviceKey, packageName, versionCode);
+  if (key != null) _installedSnapshotHelpers.remove(key);
+}
+
+/// Clear the entire install cache. Useful in tests.
+@visibleForTesting
+void resetAndroidSnapshotHelperInstallCache() {
+  _installedSnapshotHelpers.clear();
+}
+
+String? _installCacheKey(String? deviceKey, String packageName, int versionCode) {
+  return deviceKey != null ? '$deviceKey\x00$packageName\x00$versionCode' : null;
+}
 
 /// Ensure the snapshot helper APK is installed on the device and up to date.
 ///
@@ -12,6 +40,7 @@ Future<AndroidSnapshotHelperInstallResult> ensureAndroidSnapshotHelper({
   required AndroidSnapshotHelperArtifact artifact,
   AndroidSnapshotHelperInstallPolicy installPolicy =
       AndroidSnapshotHelperInstallPolicy.missingOrOutdated,
+  String? deviceKey,
   int? timeoutMs,
 }) async {
   final packageName = artifact.manifest.packageName;
@@ -26,6 +55,22 @@ Future<AndroidSnapshotHelperInstallResult> ensureAndroidSnapshotHelper({
     );
   }
 
+  // Check in-memory cache first.
+  final cacheKey = _installCacheKey(deviceKey, packageName, versionCode);
+  if (cacheKey != null &&
+      installPolicy != AndroidSnapshotHelperInstallPolicy.always) {
+    final cached = _installedSnapshotHelpers[cacheKey];
+    if (cached != null) {
+      return AndroidSnapshotHelperInstallResult(
+        packageName: packageName,
+        versionCode: versionCode,
+        installedVersionCode: cached,
+        installed: false,
+        reason: 'current',
+      );
+    }
+  }
+
   final installedVersionCode = await _readInstalledVersionCode(
     adb,
     packageName,
@@ -38,6 +83,9 @@ Future<AndroidSnapshotHelperInstallResult> ensureAndroidSnapshotHelper({
   );
 
   if (reason == 'current') {
+    if (installedVersionCode != null) {
+      _rememberInstall(cacheKey, installedVersionCode);
+    }
     return AndroidSnapshotHelperInstallResult(
       packageName: packageName,
       versionCode: versionCode,
@@ -60,6 +108,7 @@ Future<AndroidSnapshotHelperInstallResult> ensureAndroidSnapshotHelper({
   );
 
   if (result.exitCode != 0) {
+    _forgetInstall(cacheKey);
     throw AppError(
       AppErrorCodes.commandFailed,
       'Failed to install Android snapshot helper',
@@ -73,6 +122,7 @@ Future<AndroidSnapshotHelperInstallResult> ensureAndroidSnapshotHelper({
     );
   }
 
+  _rememberInstall(cacheKey, versionCode);
   return AndroidSnapshotHelperInstallResult(
     packageName: packageName,
     versionCode: versionCode,
@@ -80,6 +130,14 @@ Future<AndroidSnapshotHelperInstallResult> ensureAndroidSnapshotHelper({
     installed: true,
     reason: reason,
   );
+}
+
+void _rememberInstall(String? cacheKey, int versionCode) {
+  if (cacheKey != null) _installedSnapshotHelpers[cacheKey] = versionCode;
+}
+
+void _forgetInstall(String? cacheKey) {
+  if (cacheKey != null) _installedSnapshotHelpers.remove(cacheKey);
 }
 
 // ---------------------------------------------------------------------------
@@ -184,10 +242,12 @@ String _getInstallReason(
   int? installedVersionCode,
   int requiredVersionCode,
 ) {
-  if (installPolicy == AndroidSnapshotHelperInstallPolicy.never)
+  if (installPolicy == AndroidSnapshotHelperInstallPolicy.never) {
     return 'skipped';
-  if (installPolicy == AndroidSnapshotHelperInstallPolicy.always)
+  }
+  if (installPolicy == AndroidSnapshotHelperInstallPolicy.always) {
     return 'forced';
+  }
   if (installedVersionCode == null) return 'missing';
   return installedVersionCode < requiredVersionCode ? 'outdated' : 'current';
 }

@@ -793,9 +793,28 @@ class IosRunnerClient {
       // Expected if the runner is already wedged.
     }
     await Future<void>.delayed(const Duration(milliseconds: 500));
+    if (_isProcessTreeAlive(session.xcodebuildPid)) {
+      try {
+        Process.killPid(session.xcodebuildPid, ProcessSignal.sigkill);
+      } catch (_) {}
+    }
+  }
+
+  static bool _isProcessTreeAlive(int pid) {
+    if (pid <= 0) return false;
     try {
-      Process.killPid(session.xcodebuildPid, ProcessSignal.sigkill);
+      // kill(0) checks if the process exists without sending a signal.
+      final alive = Process.killPid(pid, ProcessSignal.sigcont);
+      if (alive) return true;
     } catch (_) {}
+    // Check process group — xcodebuild may have exited but children
+    // (e.g. the test runner) might still be around.
+    try {
+      final r = Process.runSync('kill', ['-0', '-$pid']);
+      return r.exitCode == 0;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// Check whether [session] is still reachable. Used by session-scoped
