@@ -1,3 +1,15 @@
+## 0.0.3
+
+**Features**
+
+- sort devices by boot status in \_listAllPlatforms method
+
+**Bug Fixes**
+
+- handle iOS keyboard Done dismiss controls (bbb1d363)
+- set application debuggable to false in AndroidManifest.xml
+- Cache Android helper installs (3fee9d6d)
+
 ## 0.0.2
 
 **Features**
