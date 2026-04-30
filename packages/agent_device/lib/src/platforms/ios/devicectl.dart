@@ -26,6 +26,14 @@ class IosDeviceAppInfo {
   });
 }
 
+/// One process entry returned by `xcrun devicectl device info processes`.
+/// [executable] is a `file://` URL; [pid] is the host-visible PID.
+class IosDeviceProcessInfo {
+  final String executable;
+  final int pid;
+  const IosDeviceProcessInfo({required this.executable, required this.pid});
+}
+
 /// Invoke `xcrun devicectl <args>` with the shared action/deviceId error
 /// envelope. Throws [AppError] with [AppErrorCodes.commandFailed] on
 /// non-zero exit.
@@ -115,6 +123,84 @@ Future<List<IosDeviceAppInfo>> listIosDeviceApps(
       } catch (_) {}
     }
   }
+}
+
+/// List running processes on a physical iOS device via
+/// `xcrun devicectl device info processes --json-output`.
+Future<List<IosDeviceProcessInfo>> listIosDeviceProcesses(String udid) async {
+  final tmp = File(
+    p.join(
+      Directory.systemTemp.path,
+      'agent-device-ios-processes-$pid-${DateTime.now().microsecondsSinceEpoch}.json',
+    ),
+  );
+  final args = [
+    'devicectl',
+    'device',
+    'info',
+    'processes',
+    '--device',
+    udid,
+    '--json-output',
+    tmp.path,
+  ];
+  try {
+    final r = await runCmd(
+      'xcrun',
+      args,
+      const ExecOptions(allowFailure: true, timeoutMs: 60000),
+    );
+    if (r.exitCode != 0) {
+      throw AppError(
+        AppErrorCodes.commandFailed,
+        'Failed to list iOS processes.',
+        details: {
+          'cmd': 'xcrun',
+          'args': args,
+          'exitCode': r.exitCode,
+          'stdout': r.stdout,
+          'stderr': r.stderr,
+          'deviceId': udid,
+          'hint':
+              _resolveDevicectlHint(r.stdout, r.stderr) ??
+              _devicectlDefaultHint,
+        },
+      );
+    }
+    final text = await tmp.readAsString();
+    return parseIosDeviceProcessesPayload(jsonDecode(text));
+  } finally {
+    if (await tmp.exists()) {
+      try {
+        await tmp.delete();
+      } catch (_) {}
+    }
+  }
+}
+
+/// Parse the JSON payload from `xcrun devicectl device info processes`.
+List<IosDeviceProcessInfo> parseIosDeviceProcessesPayload(Object? payload) {
+  if (payload is! Map) return const [];
+  final result = payload['result'];
+  if (result is! Map) return const [];
+  final processes = result['runningProcesses'];
+  if (processes is! List) return const [];
+  final out = <IosDeviceProcessInfo>[];
+  for (final entry in processes) {
+    if (entry is! Map) continue;
+    final executable =
+        entry['executable'] is String
+            ? (entry['executable'] as String).trim()
+            : '';
+    final pidRaw = entry['processIdentifier'];
+    final entryPid =
+        pidRaw is int
+            ? pidRaw
+            : (pidRaw is double && pidRaw.isFinite ? pidRaw.toInt() : null);
+    if (executable.isEmpty || entryPid == null) continue;
+    out.add(IosDeviceProcessInfo(executable: executable, pid: entryPid));
+  }
+  return out;
 }
 
 /// Launch [bundleId] on a physical iOS device. `payloadUrl` forwards a

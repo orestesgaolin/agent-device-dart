@@ -4,6 +4,10 @@
 // sampling records a 1-second `xctrace` activity-monitor trace, exports
 // the `activity-monitor-process-live` table as XML, and extracts the
 // target app's row.
+//
+// Frame-health sampling records a 2-second `xctrace` Animation Hitches trace,
+// exports the `hitches`, `hitches-frame-lifetimes`, and optional
+// `device-display-info` tables, and delegates parsing to perf_frame.dart.
 library;
 
 import 'dart:io';
@@ -14,6 +18,8 @@ import 'package:path/path.dart' as p;
 import 'package:xml/xml.dart';
 
 import '../perf_utils.dart';
+import 'devicectl.dart';
+import 'perf_frame.dart';
 import 'simctl.dart';
 
 const String appleCpuSampleMethod = 'ps-process-snapshot';
@@ -27,6 +33,9 @@ const int _applePerfTimeoutMs = 15000;
 const int _iosDevicePerfRecordTimeoutMs = 60000;
 const int _iosDevicePerfExportTimeoutMs = 15000;
 const String _iosDevicePerfTraceDuration = '1s';
+const String _iosDeviceFrameTraceDuration = '2s';
+const int _iosDeviceTraceRecordMaxAttempts = 3;
+const int _iosDeviceTraceRecordRetryDelayMs = 1500;
 
 /// CPU performance sample from `simctl spawn ps`.
 class AppleCpuPerfSample {
@@ -285,67 +294,398 @@ Future<List<IosDeviceProcessSample>> sampleIosDevicePerfSnapshot(
 ) async {
   final tmp = await Directory.systemTemp.createTemp('ad-ios-xctrace-');
   final tracePath = p.join(tmp.path, 'perf.trace');
+  final exportPath = p.join(tmp.path, 'activity-monitor-process-live.xml');
   try {
-    final record = await runCmd(
+    await _recordIosDeviceTrace(
+      udid: udid,
+      tracePath: tracePath,
+      template: 'Activity Monitor',
+      duration: _iosDevicePerfTraceDuration,
+      allProcesses: true,
+      failureMessage: 'Failed to record iOS device Activity Monitor sample',
+    );
+    await _exportIosDevicePerfTable(
+      udid: udid,
+      tracePath: tracePath,
+      schema: 'activity-monitor-process-live',
+      outputPath: exportPath,
+      appBundleId: '',
+    );
+    final xml = await File(exportPath).readAsString();
+    return parseIosDevicePerfXml(xml);
+  } finally {
+    try {
+      await tmp.delete(recursive: true);
+    } catch (_) {}
+  }
+}
+
+// =========================================================================
+// iOS device frame-health perf via xctrace Animation Hitches
+// =========================================================================
+
+/// Resolve the running processes belonging to [appBundleId] on the physical
+/// iOS device [udid] via `devicectl device info apps` + `info processes`.
+/// Throws [AppError] with [AppErrorCodes.appNotInstalled] when the bundle is
+/// not found, or [AppErrorCodes.commandFailed] when no matching process is
+/// running.
+Future<List<IosDeviceProcessInfo>> resolveIosDevicePerfTarget(
+  String udid,
+  String appBundleId,
+) async {
+  final apps = await listIosDeviceApps(udid);
+  final app = apps.firstWhere(
+    (a) => a.bundleId == appBundleId,
+    orElse: () => const IosDeviceAppInfo(bundleId: '', name: '', url: null),
+  );
+  if (app.bundleId.isEmpty) {
+    throw AppError(
+      AppErrorCodes.appNotInstalled,
+      'No iOS device app found for $appBundleId',
+      details: {'appBundleId': appBundleId, 'deviceId': udid},
+    );
+  }
+  if (app.url == null || app.url!.isEmpty) {
+    throw AppError(
+      AppErrorCodes.commandFailed,
+      'Missing app bundle URL for $appBundleId',
+      details: {'appBundleId': appBundleId, 'deviceId': udid},
+    );
+  }
+  // Normalize: strip trailing slash so prefix matching is consistent.
+  final appBundleUrl = app.url!.replaceFirst(RegExp(r'/$'), '');
+  final allProcesses = await listIosDeviceProcesses(udid);
+  final processes = allProcesses
+      .where((proc) => proc.executable.startsWith('$appBundleUrl/'))
+      .toList();
+  if (processes.isEmpty) {
+    throw AppError(
+      AppErrorCodes.commandFailed,
+      'No running process found for $appBundleId',
+      details: {
+        'appBundleId': appBundleId,
+        'deviceId': udid,
+        'hint':
+            'Run open <app> for this session again to ensure the iOS app is '
+            'active, then retry perf.',
+      },
+    );
+  }
+  return processes;
+}
+
+/// Sample iOS frame-drop metrics for [appBundleId] on the physical iOS
+/// device identified by [udid]. Records a 2-second Animation Hitches trace,
+/// exports the hitches / frame-lifetimes / display-info tables, and delegates
+/// parsing to [parseAppleFramePerfSample].
+///
+/// Only supported on connected physical iOS devices. Throws [AppError] with
+/// [AppErrorCodes.commandFailed] for simulators or unsupported platforms.
+Future<AppleFramePerfSample> sampleAppleFramePerf(
+  String udid,
+  String appBundleId, {
+  required List<int> targetPids,
+  required List<String> targetProcessNames,
+}) async {
+  final capture = await _captureIosDeviceFramePerf(
+    udid: udid,
+    appBundleId: appBundleId,
+    targetPids: targetPids,
+  );
+  return parseAppleFramePerfSample(
+    hitchesXml: capture.hitchesXml,
+    frameLifetimesXml: capture.frameLifetimesXml,
+    displayInfoXml: capture.displayInfoXml,
+    processIds: targetPids,
+    processNames: targetProcessNames,
+    windowStartedAt: capture.windowStartedAt,
+    windowEndedAt: capture.windowEndedAt,
+    measuredAt: capture.windowEndedAt,
+  );
+}
+
+typedef _FramePerfCapture = ({
+  String windowStartedAt,
+  String windowEndedAt,
+  String hitchesXml,
+  String frameLifetimesXml,
+  String? displayInfoXml,
+});
+
+Future<_FramePerfCapture> _captureIosDeviceFramePerf({
+  required String udid,
+  required String appBundleId,
+  required List<int> targetPids,
+}) async {
+  final tmp = await Directory.systemTemp.createTemp(
+    'ad-ios-frame-perf-',
+  );
+  final tracePath = p.join(tmp.path, 'animation-hitches.trace');
+  final hitchesPath = p.join(tmp.path, 'hitches.xml');
+  final frameLifetimesPath = p.join(tmp.path, 'frame-lifetimes.xml');
+  final displayInfoPath = p.join(tmp.path, 'display-info.xml');
+  try {
+    final targetArgs = targetPids
+        .expand((pid) => ['--attach', '$pid'])
+        .toList();
+    final record = await _recordIosDeviceTrace(
+      udid: udid,
+      tracePath: tracePath,
+      template: 'Animation Hitches',
+      duration: _iosDeviceFrameTraceDuration,
+      targetArgs: targetArgs,
+      validateTraceOutput: true,
+      failureMessage:
+          'Failed to record iOS frame-health sample for $appBundleId',
+      appBundleId: appBundleId,
+    );
+    await _exportIosDevicePerfTable(
+      udid: udid,
+      tracePath: tracePath,
+      schema: 'hitches',
+      outputPath: hitchesPath,
+      appBundleId: appBundleId,
+    );
+    await _exportIosDevicePerfTable(
+      udid: udid,
+      tracePath: tracePath,
+      schema: 'hitches-frame-lifetimes',
+      outputPath: frameLifetimesPath,
+      appBundleId: appBundleId,
+    );
+    final hasDisplayInfo = await _exportOptionalIosDevicePerfTable(
+      udid: udid,
+      tracePath: tracePath,
+      schema: 'device-display-info',
+      outputPath: displayInfoPath,
+      appBundleId: appBundleId,
+    );
+    return (
+      windowStartedAt: record.startedAt,
+      windowEndedAt: record.endedAt,
+      hitchesXml: await File(hitchesPath).readAsString(),
+      frameLifetimesXml: await File(frameLifetimesPath).readAsString(),
+      displayInfoXml:
+          hasDisplayInfo ? await File(displayInfoPath).readAsString() : null,
+    );
+  } finally {
+    try {
+      await tmp.delete(recursive: true);
+    } catch (_) {}
+  }
+}
+
+// =========================================================================
+// Shared xctrace record / export helpers
+// =========================================================================
+
+typedef _TraceRecord = ({String startedAt, String endedAt, int capturedAtMs});
+typedef _TraceRecordAttempt = ({
+  String startedAt,
+  String endedAt,
+  int capturedAtMs,
+  RunCmdResult result,
+});
+
+Future<_TraceRecord> _recordIosDeviceTrace({
+  required String udid,
+  required String tracePath,
+  required String template,
+  required String duration,
+  List<String> targetArgs = const [],
+  bool allProcesses = false,
+  bool validateTraceOutput = false,
+  required String failureMessage,
+  String appBundleId = '',
+}) async {
+  final recordArgs = [
+    'xctrace',
+    'record',
+    '--template',
+    template,
+    '--device',
+    udid,
+    if (allProcesses) '--all-processes',
+    ...targetArgs,
+    '--time-limit',
+    duration,
+    '--output',
+    tracePath,
+    '--quiet',
+    '--no-prompt',
+  ];
+  final attempt = await _runIosDeviceTraceRecord(recordArgs, tracePath);
+  if (attempt.result.exitCode == 0) {
+    if (validateTraceOutput) {
+      await _assertUsableTraceOutput(
+        tracePath: tracePath,
+        appBundleId: appBundleId,
+        failureMessage: failureMessage,
+        stdout: attempt.result.stdout,
+        stderr: attempt.result.stderr,
+      );
+    }
+    return (
+      startedAt: attempt.startedAt,
+      endedAt: attempt.endedAt,
+      capturedAtMs: attempt.capturedAtMs,
+    );
+  }
+  throw AppError(
+    AppErrorCodes.commandFailed,
+    failureMessage,
+    details: {
+      'cmd': 'xcrun',
+      'exitCode': attempt.result.exitCode,
+      'stdout': attempt.result.stdout,
+      'stderr': attempt.result.stderr,
+      if (appBundleId.isNotEmpty) 'appBundleId': appBundleId,
+      'deviceId': udid,
+    },
+  );
+}
+
+Future<_TraceRecordAttempt> _runIosDeviceTraceRecord(
+  List<String> recordArgs,
+  String tracePath,
+) async {
+  _TraceRecordAttempt? lastAttempt;
+  for (var attempt = 1;
+      attempt <= _iosDeviceTraceRecordMaxAttempts;
+      attempt += 1) {
+    if (attempt > 1) {
+      // Clean up any partial trace from the failed attempt.
+      try {
+        final f = FileSystemEntity.typeSync(tracePath);
+        if (f == FileSystemEntityType.directory) {
+          await Directory(tracePath).delete(recursive: true);
+        } else if (f == FileSystemEntityType.file) {
+          await File(tracePath).delete();
+        }
+      } catch (_) {}
+      await Future<void>.delayed(
+        const Duration(milliseconds: _iosDeviceTraceRecordRetryDelayMs),
+      );
+    }
+    final startedAt = DateTime.now().toUtc().toIso8601String();
+    final result = await runCmd(
       'xcrun',
-      [
-        'xctrace',
-        'record',
-        '--device',
-        udid,
-        '--template',
-        'Activity Monitor',
-        '--time-limit',
-        _iosDevicePerfTraceDuration,
-        '--all-processes',
-        '--output',
-        tracePath,
-      ],
+      recordArgs,
       const ExecOptions(
         allowFailure: true,
         timeoutMs: _iosDevicePerfRecordTimeoutMs,
       ),
     );
-    if (record.exitCode != 0) {
-      throw AppError(
-        AppErrorCodes.commandFailed,
-        'xctrace record failed (exit ${record.exitCode}).',
-        details: {
-          'stdout': record.stdout,
-          'stderr': record.stderr,
-          'hint':
-              'Ensure the device is unlocked + trusted and Xcode has been '
-              'opened at least once to warm up CoreDevice.',
-        },
-      );
-    }
-    final export = await runCmd(
-      'xcrun',
-      [
-        'xctrace',
-        'export',
-        '--input',
-        tracePath,
-        '--xpath',
-        '/trace-toc/run[1]/data/table[@schema="activity-monitor-process-live"]',
-      ],
-      const ExecOptions(
-        allowFailure: true,
-        timeoutMs: _iosDevicePerfExportTimeoutMs,
-      ),
+    lastAttempt = (
+      result: result,
+      startedAt: startedAt,
+      endedAt: DateTime.now().toUtc().toIso8601String(),
+      capturedAtMs: DateTime.now().millisecondsSinceEpoch,
     );
-    if (export.exitCode != 0) {
-      throw AppError(
-        AppErrorCodes.commandFailed,
-        'xctrace export failed (exit ${export.exitCode}).',
-        details: {'stderr': export.stderr},
-      );
+    if (result.exitCode == 0 ||
+        !_isRetryableTraceRecordFailure(result.stdout, result.stderr)) {
+      return lastAttempt;
     }
-    return parseIosDevicePerfXml(export.stdout);
-  } finally {
-    try {
-      await tmp.delete(recursive: true);
-    } catch (_) {}
+  }
+  return lastAttempt!;
+}
+
+bool _isRetryableTraceRecordFailure(String stdout, String stderr) {
+  final text = '$stdout\n$stderr'.toLowerCase();
+  return text.contains('_lockkperf') ||
+      text.contains('could not lock kperf') ||
+      text.contains('likely another session just started');
+}
+
+Future<void> _assertUsableTraceOutput({
+  required String tracePath,
+  required String appBundleId,
+  required String failureMessage,
+  required String stdout,
+  required String stderr,
+}) async {
+  final entityType = await FileSystemEntity.type(tracePath);
+  bool hasTrace;
+  if (entityType == FileSystemEntityType.directory) {
+    hasTrace = (await Directory(tracePath).list().length) > 0;
+  } else {
+    final stat = await File(tracePath).stat().catchError((_) => FileStat.statSync('/dev/null'));
+    hasTrace = stat.size > 0;
+  }
+  if (hasTrace) return;
+  throw AppError(
+    AppErrorCodes.commandFailed,
+    '$failureMessage: xctrace produced no trace data',
+    details: {
+      'tracePath': tracePath,
+      if (appBundleId.isNotEmpty) 'appBundleId': appBundleId,
+      'stdout': stdout,
+      'stderr': stderr,
+      'hint':
+          'Keep the iOS device unlocked and connected by cable, keep the app '
+          'active, then retry perf.',
+    },
+  );
+}
+
+Future<void> _exportIosDevicePerfTable({
+  required String udid,
+  required String tracePath,
+  required String schema,
+  required String outputPath,
+  required String appBundleId,
+}) async {
+  final exportArgs = [
+    'xctrace',
+    'export',
+    '--input',
+    tracePath,
+    '--xpath',
+    '/trace-toc/run/data/table[@schema="$schema"]',
+    '--output',
+    outputPath,
+  ];
+  final result = await runCmd(
+    'xcrun',
+    exportArgs,
+    const ExecOptions(
+      allowFailure: true,
+      timeoutMs: _iosDevicePerfExportTimeoutMs,
+    ),
+  );
+  if (result.exitCode == 0) return;
+  throw AppError(
+    AppErrorCodes.commandFailed,
+    'Failed to export iOS device $schema data',
+    details: {
+      'cmd': 'xcrun',
+      'exitCode': result.exitCode,
+      'stdout': result.stdout,
+      'stderr': result.stderr,
+      if (appBundleId.isNotEmpty) 'appBundleId': appBundleId,
+      'deviceId': udid,
+    },
+  );
+}
+
+Future<bool> _exportOptionalIosDevicePerfTable({
+  required String udid,
+  required String tracePath,
+  required String schema,
+  required String outputPath,
+  required String appBundleId,
+}) async {
+  try {
+    await _exportIosDevicePerfTable(
+      udid: udid,
+      tracePath: tracePath,
+      schema: schema,
+      outputPath: outputPath,
+      appBundleId: appBundleId,
+    );
+    return true;
+  } catch (_) {
+    return false;
   }
 }
 

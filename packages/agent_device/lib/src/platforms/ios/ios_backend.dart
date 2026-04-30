@@ -22,6 +22,7 @@ import 'devicectl.dart';
 import 'devices.dart';
 import 'install_artifact.dart';
 import 'perf.dart';
+import 'perf_frame.dart';
 import 'runner_client.dart';
 import 'screenshot.dart';
 import 'simctl.dart';
@@ -703,12 +704,36 @@ class IosBackend extends Backend {
     final requested = options?.metrics?.map((e) => e.toLowerCase()).toSet();
     final wantCpu = requested == null || requested.contains('cpu');
     final wantMemory = requested == null || requested.contains('memory');
+    final wantFps = requested == null || requested.contains('fps');
 
     // Physical device: xctrace 1s activity-monitor + XML parse. Match
     // rows by bundleId's last segment (typical CFBundleExecutable form)
     // and by full bundleId as a fallback.
+    // Frame perf uses xctrace Animation Hitches with PIDs from devicectl.
     if (kind == 'device') {
       final lastSegment = bundleId.split('.').last.toLowerCase();
+      // Resolve running PIDs for frame perf (also used to refine CPU/memory
+      // process matching by process name).
+      final processes = await resolveIosDevicePerfTarget(udid, bundleId);
+      final targetPids = processes.map((p) => p.pid).toList();
+      final targetNames = processes
+          .map((p) => p.executable.split('/').last)
+          .where((n) => n.isNotEmpty)
+          .toSet()
+          .toList();
+
+      // Run frame perf and CPU/memory concurrently to reduce total wall time.
+      final frameFuture = wantFps
+          ? sampleAppleFramePerf(
+              udid,
+              bundleId,
+              targetPids: targetPids,
+              targetProcessNames: targetNames,
+            ).then<AppleFramePerfSample?>(
+              (s) => s,
+            ).catchError((_) => null)
+          : Future<AppleFramePerfSample?>.value(null);
+
       final sample = await sampleIosDevicePerfMetrics(
         udid,
         matcherLabel: bundleId,
@@ -718,6 +743,8 @@ class IosBackend extends Backend {
               lower.contains(bundleId.toLowerCase());
         },
       );
+      final frameSample = await frameFuture;
+
       final metrics = <BackendPerfMetric>[];
       if (wantCpu) {
         metrics.add(
@@ -752,6 +779,33 @@ class IosBackend extends Backend {
                   'aggregated across matched processes.',
               'matchedProcesses': sample.memory.matchedProcesses,
               'measuredAt': sample.memory.measuredAt,
+            },
+          ),
+        );
+      }
+      if (wantFps && frameSample != null) {
+        metrics.add(
+          BackendPerfMetric(
+            name: 'fps',
+            value: frameSample.droppedFramePercent,
+            unit: 'percent',
+            status: 'ok',
+            metadata: {
+              'method': frameSample.method,
+              'description': appleFrameSampleDescription,
+              'droppedFrameCount': frameSample.droppedFrameCount,
+              'totalFrameCount': frameSample.totalFrameCount,
+              'sampleWindowMs': frameSample.sampleWindowMs,
+              'matchedProcesses': frameSample.matchedProcesses,
+              'measuredAt': frameSample.measuredAt,
+              if (frameSample.refreshRateHz != null)
+                'refreshRateHz': frameSample.refreshRateHz,
+              if (frameSample.frameDeadlineMs != null)
+                'frameDeadlineMs': frameSample.frameDeadlineMs,
+              if (frameSample.worstWindows != null)
+                'worstWindows': frameSample.worstWindows!
+                    .map((w) => w.toJson())
+                    .toList(),
             },
           ),
         );
