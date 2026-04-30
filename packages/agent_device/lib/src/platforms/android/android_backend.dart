@@ -564,6 +564,7 @@ class AndroidBackend extends Backend {
     final requested = options?.metrics?.map((e) => e.toLowerCase()).toSet();
     final wantCpu = requested == null || requested.contains('cpu');
     final wantMemory = requested == null || requested.contains('memory');
+    final wantFps = requested == null || requested.contains('fps');
 
     final metrics = <BackendPerfMetric>[];
     String? startedAt;
@@ -606,6 +607,46 @@ class AndroidBackend extends Backend {
       );
       startedAt ??= mem.measuredAt;
       endedAt = mem.measuredAt;
+    }
+    if (wantFps) {
+      final fps = await sampleAndroidFramePerf(serial, packageName);
+      metrics.add(
+        BackendPerfMetric(
+          name: 'fps',
+          value: fps.droppedFramePercent,
+          unit: 'droppedPercent',
+          status: 'ok',
+          metadata: {
+            'method': fps.method,
+            'description': androidFrameSampleDescription,
+            'droppedFrameCount': fps.droppedFrameCount,
+            'totalFrameCount': fps.totalFrameCount,
+            if (fps.sampleWindowMs != null) 'sampleWindowMs': fps.sampleWindowMs,
+            if (fps.frameDeadlineMs != null) 'frameDeadlineMs': fps.frameDeadlineMs,
+            if (fps.refreshRateHz != null) 'refreshRateHz': fps.refreshRateHz,
+            if (fps.windowStartedAt != null) 'windowStartedAt': fps.windowStartedAt,
+            if (fps.windowEndedAt != null) 'windowEndedAt': fps.windowEndedAt,
+            if (fps.timestampSource != null) 'timestampSource': fps.timestampSource,
+            'source': fps.source,
+            'measuredAt': fps.measuredAt,
+            if (fps.worstWindows != null)
+              'worstWindows': fps.worstWindows!
+                  .map(
+                    (w) => <String, Object?>{
+                      'startOffsetMs': w.startOffsetMs,
+                      'endOffsetMs': w.endOffsetMs,
+                      if (w.startAt != null) 'startAt': w.startAt,
+                      if (w.endAt != null) 'endAt': w.endAt,
+                      'missedDeadlineFrameCount': w.missedDeadlineFrameCount,
+                      'worstFrameMs': w.worstFrameMs,
+                    },
+                  )
+                  .toList(),
+          },
+        ),
+      );
+      startedAt ??= fps.measuredAt;
+      endedAt = fps.measuredAt;
     }
 
     return BackendMeasurePerfResult(

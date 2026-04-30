@@ -5,6 +5,16 @@ import '../../utils/exec.dart';
 import '../perf_utils.dart';
 import 'adb.dart';
 
+export 'perf_frame.dart'
+    show
+        androidFrameSampleDescription,
+        androidFrameSampleMethod,
+        parseAndroidFramePerfSample,
+        resetAndroidFramePerfStats,
+        sampleAndroidFramePerf,
+        AndroidFrameDropWindow,
+        AndroidFramePerfSample;
+
 const String androidCpuSampleMethod = 'adb-shell-dumpsys-cpuinfo';
 const String androidCpuSampleDescription =
     'Aggregated CPU usage for app processes matched from adb shell dumpsys cpuinfo.';
