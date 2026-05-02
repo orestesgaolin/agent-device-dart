@@ -1,3 +1,10 @@
+## 0.0.4
+
+**Features**
+
+- add Android frame health perf metrics (port of 0c7e48d7)
+- add iOS frame perf sampling (port of cff8bd81)
+
 ## 0.0.3
 
 **Features**
@@ -6,9 +13,9 @@
 
 **Bug Fixes**
 
-- handle iOS keyboard Done dismiss controls (bbb1d363)
+- handle iOS keyboard Done dismiss controls (port of bbb1d363)
 - set application debuggable to false in AndroidManifest.xml
-- Cache Android helper installs (3fee9d6d)
+- Cache Android helper installs (port of 3fee9d6d)
 
 ## 0.0.2
 
