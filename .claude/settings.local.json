@@ -23,7 +23,8 @@
       "Read(//tmp/**)",
       "Bash(rm -f /tmp/agent-cli-test.png)",
       "Bash(AGENT_DEVICE_ANDROID_LIVE=1 dart test *)",
-      "Bash(AGENT_DEVICE_ANDROID_LIVE=1 fvm dart test *)"
+      "Bash(AGENT_DEVICE_ANDROID_LIVE=1 fvm dart test *)",
+      "Bash(make compile *)"
     ]
   }
 }
